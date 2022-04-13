@@ -9,8 +9,7 @@ def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
         if index < seq_length:
             turn_on.append(1)
         else:
-            std = np.std(pm2_5[index - int(seq_length/2)
-                         : index + int(seq_length/2)])
+            std = np.std(pm2_5[index - int(seq_length/2)                         : index + int(seq_length/2)])
             # print(std)
             if std > threshold_std:
                 turn_on.append(1)
@@ -64,3 +63,20 @@ def plot_metrics(train_loss, val_loss, folder, filename):
     plt.xlabel('Epoch')
     plt.legend(loc='upper center')
     plt.savefig(folder + filename)  # save the figure to file
+
+
+def plot_results(y_original, y_predict, folder, filename,y_inference=None):
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    # print(y_original.shape)
+    # print(y_predict)
+    # print(y_inference)
+    plt.figure(figsize=(30, 14))
+    plt.title('PM2_5')
+    plt.plot(y_original, label='Original')
+    plt.plot(y_predict, label='Predcit')
+    if y_inference is not None:
+        plt.plot(y_inference, label='Inference')
+    plt.xlabel('Time steps')
+    plt.legend(loc='upper center')
+    plt.savefig(folder + filename, dpi=200)  # save the figure to file

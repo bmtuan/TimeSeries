@@ -1,9 +1,10 @@
 from init import *
-from const import *
+from utils import *
+import pdb
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0):
+    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0):
         super(Encoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -18,7 +19,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size, num_layers=1, dropout=0):
+    def __init__(self, input_size, output_size, hidden_size, num_layers=2, dropout=0):
         super(Decoder, self).__init__()
         self.output_size = output_size
         self.input_size = input_size
@@ -48,7 +49,7 @@ class Decoder(nn.Module):
 
 
 class lstm_seq2seq(nn.Module):
-    def __init__(self, input_size=2, output_size=1, input_seq_len=120, output_seq_len=10, hidden_size=12, confidence=THRESHOLD_PREDICT):
+    def __init__(self,  input_seq_len, output_seq_len, confidence, input_size=2, output_size=1, hidden_size=12):
         super(lstm_seq2seq, self).__init__()
         self.output_seq_len = output_seq_len
         self.input_size = input_size
@@ -86,20 +87,18 @@ class lstm_seq2seq(nn.Module):
 
         return outputs, outputs_prob
 
-    def train(self, train_iterator, valid_iterator, learning_rate=0.001, num_epochs=50, coefficient=COEFFICIENT_LOSS, thresh=THRESHOLD_PREDICT):
+    def train(self, train_iterator, valid_iterator, learning_rate, num_epochs, coefficient, model_path):
         list_train_loss = []
         list_val_loss = []
         best_loss = 999999
-        losses = np.full(num_epochs, np.nan)
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
         criterion = nn.MSELoss()
         criterion_binary = nn.BCELoss()
         scheduler = optim.lr_scheduler.StepLR(
-            optimizer, step_size=4, gamma=0.8)
+            optimizer, step_size=5, gamma=0.9)
 
         for epoch in tqdm(range(num_epochs)):
             epoch_train_loss = 0
-            list_val_acc = []
             for x, y1, y2 in train_iterator:
                 x, y1, y2 = x.to(device), y1.to(device), y2.to(device)
 
@@ -113,6 +112,8 @@ class lstm_seq2seq(nn.Module):
 
                 linear_loss = criterion(outputs, y1)
                 binary_loss = criterion_binary(outputs_prob, y2)
+                # print('linear_loss', linear_loss.item())
+                # print('binary_loss', binary_loss.item())
                 loss = (1 - coefficient) * linear_loss + \
                     coefficient * binary_loss
 
@@ -141,7 +142,7 @@ class lstm_seq2seq(nn.Module):
 
                 val_loss = epoch_val_loss / len(valid_iterator)
                 if val_loss < best_loss:
-                    torch.save(model.state_dict(), MODEL_PATH)
+                    torch.save(self.state_dict(), model_path)
                     print(
                         f'\tSave best checkpoint with best loss: {val_loss:.4f}')
                     best_loss = val_loss
@@ -150,9 +151,9 @@ class lstm_seq2seq(nn.Module):
             list_val_loss.append(val_loss)
             print(f'\t Val loss: {epoch_val_loss / len(valid_iterator):.4f}')
 
-        return list_train_loss, list_val_loss
+        plot_metrics(list_train_loss, list_val_loss, 'output/', 'metric.png')
 
-    def predict(self, iterator, threshold=THRESHOLD_PREDICT):
+    def predict(self, iterator, sc_test, confidence):
         y_linear_original = []
         y_linear_predict = []
         y_classcification_original = []
@@ -164,21 +165,21 @@ class lstm_seq2seq(nn.Module):
 
                 linear_outputs, prob_output = self.forward(
                     x)  # batch_size, output_seq, num_feature
-                linear_outputs, outputs_prob = linear_outputs.to(
-                    device), outputs_prob.to(device)
+                linear_outputs, prob_output = linear_outputs.to(
+                    device), prob_output.to(device)
 
-                y_linear_predict.append(linear_outputs.detach().numpy()[
+                y_linear_predict.append(linear_outputs.detach().cpu().numpy()[
                                         :, 0, :].reshape(-1))
                 y_linear_original.append(
-                    y1.detach().numpy()[:, 0, :].reshape(-1))
+                    y1.detach().cpu().numpy()[:, 0, :].reshape(-1))
 
-                prob_output = prob_output > threshold
+                prob_output = prob_output > (1 - confidence)
                 prob_output = prob_output.long()
 
                 y_classcification_predict.append(
-                    prob_output.detach().numpy()[:, 0, :].reshape(-1))
+                    prob_output.detach().cpu().numpy()[:, 0, :].reshape(-1))
                 y_classcification_original.append(
-                    y2.detach().numpy()[:, 0, :].reshape(-1))
+                    y2.detach().cpu().numpy()[:, 0, :].reshape(-1))
 
         y_linear_predict = np.reshape(y_linear_predict, (-1))
         y_linear_original = np.reshape(y_linear_original, (-1))
@@ -224,7 +225,7 @@ class lstm_seq2seq(nn.Module):
         print(f"Loss MAPE: {loss_mape}")
         print(f"R2: {r2}")
 
-        return y_classcification_predict, y_predict, y_original
+        plot_results(y_original, y_predict, 'output/', 'test.png')
 
     def predict_real_time(self, input_tensor, confidence):
         linear_outputs, prob_output = self.forward(
@@ -240,3 +241,192 @@ class lstm_seq2seq(nn.Module):
         y_linear_predict = np.reshape(linear_outputs, (-1))
 
         return y_linear_predict, prob_output
+
+    def eval_realtime(self, test_df, input_length, output_length, confidence, sc_test, synthetic_threshold, synthetic_seq_len):
+        pm2_5 = test_df.iloc[:, 0:1].values
+        turn_on_list = test_df.iloc[:, 1:2].values
+
+        pm2_5_copy = copy.deepcopy(pm2_5)
+        # inverse scale
+        pm2_5 = np.repeat(pm2_5, 2, 1)
+        pm2_5 = sc_test.inverse_transform(pm2_5)
+        pm2_5 = pm2_5[:, 0].reshape(len(pm2_5), 1)
+
+        y_predict = []
+        pm2_5_predict = pm2_5[:input_length]
+
+        input = pm2_5_copy[0: input_length]
+        turn_on = turn_on_list[0: input_length]
+        turn_on = turn_on.reshape(-1).tolist()
+        i = 0
+        count = 0
+
+        while i < len(pm2_5):
+            # prepare input
+            feature = input[len(input) - input_length: len(input)]
+            feature_sc = np.repeat(feature, 2, 1)
+            feature_sc = sc_test.inverse_transform(feature_sc)
+            feature_sc = feature_sc[:, 0].reshape(input_length, 1)
+
+            turn_on_input = np.array(turn_on[-input_length:])
+            turn_on_input = turn_on_input.reshape(input_length, 1)
+            feature = np.concatenate((feature, turn_on_input), axis=1)
+            feature = feature.reshape(1, feature.shape[0], feature.shape[1])
+            tensor_x = torch.tensor(feature)
+            tensor_x = tensor_x.to(device)
+            linear_output, prob_output = self.predict_real_time(
+                tensor_x.float(), confidence=confidence)
+            linear_output = linear_output.reshape(linear_output.shape[0], 1)
+            y_preds = np.repeat(linear_output, 2, 1)
+            y_inv = sc_test.inverse_transform(y_preds)
+            y_pred_inv = y_inv[:, 0]
+            y_pred_inv = y_pred_inv.reshape(y_pred_inv.shape[0], 1)
+            y_pred_inv = np.round(y_pred_inv, 1)
+            pm2_5_predict = np.concatenate([pm2_5_predict, y_pred_inv])
+
+            flag = -1
+
+            for index, prob in enumerate(prob_output):
+                if prob:
+                    flag = index
+                    break
+            if flag != -1:
+                count += flag
+                y_predict = y_predict + \
+                    y_pred_inv[:flag].reshape(-1).tolist()
+                input = np.concatenate((input, linear_output[:flag]))
+                y_predict = y_predict + \
+                    pm2_5[flag + i: flag + i +
+                          30].reshape(-1).tolist()
+                input = np.concatenate(
+                    (input, pm2_5_copy[flag + i: flag + i + 30]))
+                i += flag + 30
+            else:
+                y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
+                input = np.concatenate((input, linear_output))
+                i += output_length
+                count += len(linear_output.tolist())
+
+            turn_on_synthetic = cal_synthetic_turn_on(
+                synthetic_threshold, synthetic_seq_len, y_predict[-(output_length + 10):])
+            turn_on = turn_on + \
+                turn_on_synthetic[-(len(input) - len(turn_on)):]
+
+        # cal loss
+        loss_mae = mean_absolute_error(pm2_5, y_predict[:len(pm2_5)])
+        loss_rmse = mean_squared_error(
+            pm2_5, y_predict[:len(pm2_5)], squared=False)
+        loss_mape = mean_absolute_percentage_error(
+            pm2_5, y_predict[:len(pm2_5)])*100
+        r2 = r2_score(pm2_5, y_predict[:len(pm2_5)])
+
+        print(f"Save {count}/{len(pm2_5)} ~ {count/len(pm2_5)*100:.2f}% times")
+        print(f"Loss MAE: {loss_mae:.4f}")
+        print(f"Loss RMSE: {loss_rmse:.4f}")
+        print(f"Loss MAPE: {loss_mape:.4f}")
+        print(f"R2: {r2:.4f}")
+        plot_results(pm2_5.reshape(-1), pm2_5_predict.reshape(-1), 'output/',
+                     'inference.png', y_predict)
+
+    def eval_realtime_2(self, test_df, input_length, output_length, confidence, sc_test, synthetic_threshold, synthetic_seq_len):
+        pm2_5 = test_df.iloc[:, 0:1].values
+        turn_on_list = test_df.iloc[:, 1:2].values
+
+        pm2_5_copy = copy.deepcopy(pm2_5)
+        # inverse scale
+        pm2_5 = np.repeat(pm2_5, 2, 1)
+        pm2_5 = sc_test.inverse_transform(pm2_5)
+        pm2_5 = pm2_5[:, 0].reshape(len(pm2_5), 1)
+
+        y_predict = []
+
+        # pm2_5_predict = pm2_5[:input_length]
+        pm2_5 = pm2_5[input_length:]
+        input = pm2_5_copy[0: input_length]
+        turn_on = turn_on_list[0: input_length]
+        turn_on = turn_on.reshape(-1).tolist()
+        i = 0
+        count = 0
+
+        while i < len(pm2_5):
+            # prepare input
+            feature = input[len(input) - input_length: len(input)]
+            feature_sc = np.repeat(feature, 2, 1)
+            feature_sc = sc_test.inverse_transform(feature_sc)
+            feature_sc = feature_sc[:, 0].reshape(input_length, 1)
+
+            turn_on_input = np.array(turn_on[-input_length:])
+            turn_on_input = turn_on_input.reshape(input_length, 1)
+            feature = np.concatenate((feature, turn_on_input), axis=1)
+            feature = feature.reshape(1, feature.shape[0], feature.shape[1])
+            tensor_x = torch.tensor(feature)
+            tensor_x = tensor_x.to(device)
+            linear_output, prob_output = self.predict_real_time(
+                tensor_x.float(), confidence=confidence)
+            linear_output = linear_output.reshape(linear_output.shape[0], 1)
+            y_preds = np.repeat(linear_output, 2, 1)
+            y_inv = sc_test.inverse_transform(y_preds)
+            y_pred_inv = y_inv[:, 0]
+            y_pred_inv = y_pred_inv.reshape(y_pred_inv.shape[0], 1)
+            y_pred_inv = np.round(y_pred_inv, 1)
+            # print(y_pred_inv)
+            # pm2_5_predict = np.concatenate([pm2_5_predict, y_pred_inv])
+
+            flag = -1
+            for index, prob in enumerate(prob_output):
+                if prob:
+                    flag = index
+                    break
+            if flag != -1:
+                count += flag
+                y_predict = y_predict + y_pred_inv[:flag].reshape(-1).tolist()
+                input = np.concatenate((input, linear_output[:flag]))
+
+                y_predict = y_predict + \
+                    pm2_5[flag + i: flag + i + 20].reshape(-1).tolist()
+                input = np.concatenate(
+                    (input, pm2_5_copy[flag + i: flag + i + 20]))
+
+                i += flag + 20
+                for index, _ in enumerate(pm2_5[i:]):
+                    # print(index)
+                    y_predict.append(float(pm2_5[i + index]))
+
+                    input = np.concatenate(
+                        (input, pm2_5_copy[i + index: i + index + 1]))
+                    loss_mape_check = mean_absolute_percentage_error(
+                        pm2_5[:len(y_predict)], y_predict)*100
+                    if loss_mape_check < 20:
+                        break
+                i += index + 1
+            else:
+                y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
+                input = np.concatenate((input, linear_output))
+                i += output_length
+                count += output_length
+
+            turn_on_synthetic = cal_synthetic_turn_on(
+                synthetic_threshold, synthetic_seq_len, y_predict[-(output_length + 10):])
+            turn_on = turn_on + \
+                turn_on_synthetic[-(len(input) - len(turn_on)):]
+
+        # print('pm2_5:', len(pm2_5))
+        # print('y_predict:', len(y_predict))
+        # cal loss
+        percent_save = count/len(pm2_5)*100
+        loss_mae = mean_absolute_error(pm2_5, y_predict[:len(pm2_5)])
+        loss_rmse = mean_squared_error(
+            pm2_5, y_predict[:len(pm2_5)], squared=False)
+        loss_mape = mean_absolute_percentage_error(
+            pm2_5, y_predict[:len(pm2_5)])*100
+        r2 = r2_score(pm2_5, y_predict[:len(pm2_5)])
+
+        print(f"Save {count}/{len(pm2_5)} ~ {count/len(pm2_5)*100:.2f}% times")
+        print(f"Loss MAE: {loss_mae:.4f}")
+        print(f"Loss RMSE: {loss_rmse:.4f}")
+        print(f"Loss MAPE: {loss_mape:.4f}")
+        print(f"R2: {r2:.4f}")
+        plot_results(pm2_5.reshape(-1), y_predict, 'output/',
+                     f'inference_{confidence}.png')
+
+        return percent_save, loss_mape
