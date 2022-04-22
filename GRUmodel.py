@@ -1,11 +1,10 @@
 from init import *
 from utils import *
-import pdb
 
 
-class Encoder(nn.Module):
+class GRU_Encoder(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers=2, dropout=0):
-        super(Encoder, self).__init__()
+        super(GRU_Encoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -18,9 +17,9 @@ class Encoder(nn.Module):
         return out, state
 
 
-class Decoder(nn.Module):
+class GRU_Decoder(nn.Module):
     def __init__(self, input_size, output_size, hidden_size, num_layers=2, dropout=0):
-        super(Decoder, self).__init__()
+        super(GRU_Decoder, self).__init__()
         self.output_size = output_size
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -48,18 +47,19 @@ class Decoder(nn.Module):
         return out_pm, out_prob, hidden_state
 
 
-class lstm_seq2seq(nn.Module):
-    def __init__(self,  input_seq_len, output_seq_len, confidence, input_size=2, output_size=1, hidden_size=12):
-        super(lstm_seq2seq, self).__init__()
+class GRU(nn.Module):
+    def __init__(self,  input_seq_len, output_seq_len, confidence, number_layer,input_size=2, output_size=1, hidden_size=12):
+        super(GRU, self).__init__()
         self.output_seq_len = output_seq_len
         self.input_size = input_size
+        self.number_layer = number_layer
         self.input_seq_len = input_seq_len
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.confidence = confidence
-        self.encoder = Encoder(self.input_size, self.hidden_size)
-        self.decoder = Decoder(
-            self.input_size, self.output_size, self.hidden_size)
+        self.encoder = GRU_Encoder(self.input_size, self.hidden_size, self.number_layer)
+        self.decoder = GRU_Decoder(
+            self.input_size, self.output_size, self.hidden_size, self.number_layer)
 
     def forward(self, x):
         outputs = torch.zeros(x.shape[0], self.output_seq_len, 1)
@@ -224,8 +224,9 @@ class lstm_seq2seq(nn.Module):
         print(f"Loss RMSE: {loss_rmse}")
         print(f"Loss MAPE: {loss_mape}")
         print(f"R2: {r2}")
-
-        plot_results(y_original, y_predict, 'output/', 'test.png')
+        
+        return loss_mae, loss_rmse, loss_mape
+        # plot_results(y_original, y_predict, 'output/', 'test.png')
 
     def predict_real_time(self, input_tensor, confidence):
         linear_outputs, prob_output = self.forward(

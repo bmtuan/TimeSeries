@@ -9,7 +9,7 @@ def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
         if index < seq_length:
             turn_on.append(1)
         else:
-            std = np.std(pm2_5[index - int(seq_length/2)                         : index + int(seq_length/2)])
+            std = np.std(pm2_5[index - int(seq_length/2) : index + int(seq_length/2)])
             # print(std)
             if std > threshold_std:
                 turn_on.append(1)
@@ -38,6 +38,16 @@ def get_train_valid_test_data(df):
     test_df, sc_test = scale_data(test_df)
 
     return train_df, val_df, test_df, sc_train, sc_val, sc_test
+
+def get_test_data(df):
+    ls_col = list(df.keys())
+    new_ls = ['PM2_5']
+    ls_col.remove('PM2_5')
+    new_ls.extend(ls_col)
+    new_df = df[new_ls]
+    test_df, sc_test = scale_data(new_df)
+    
+    return test_df, sc_test
 
 
 def copyStateDict(state_dict):
@@ -80,3 +90,24 @@ def plot_results(y_original, y_predict, folder, filename,y_inference=None):
     plt.xlabel('Time steps')
     plt.legend(loc='upper center')
     plt.savefig(folder + filename, dpi=200)  # save the figure to file
+
+
+
+def cal_missing_value(df):
+  count = 0
+  for index, row in df.iterrows():
+    minute = int(row['datetime'].strftime("%M"))
+    if index != 0:
+      if (minute - 1 != previous_minute) and (minute + 59 != previous_minute):
+        count +=1
+        print(previous_minute, minute) 
+    previous_minute = minute
+  return count
+
+def cal_energy(count, total):
+    if count > total:
+        count = total
+    w_active = 3.185
+    w_sleep = 1.617
+
+    return 1 - (count * w_sleep + (total - count) * w_active ) / (total * w_active)
