@@ -1,4 +1,4 @@
-from init import *
+from model.init import *
 
 
 def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):

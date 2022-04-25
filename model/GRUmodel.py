@@ -1,10 +1,10 @@
-from init import *
-from utils import *
+from model.init import *
+from model.utils import *
 
 
-class RNN_Encoder(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0):
-        super(RNN_Encoder, self).__init__()
+class GRU_Encoder(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0):
+        super(GRU_Encoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -17,9 +17,9 @@ class RNN_Encoder(nn.Module):
         return out, state
 
 
-class RNN_Decoder(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size, num_layers=1, dropout=0):
-        super(RNN_Decoder, self).__init__()
+class GRU_Decoder(nn.Module):
+    def __init__(self, input_size, output_size, hidden_size, num_layers=2, dropout=0):
+        super(GRU_Decoder, self).__init__()
         self.output_size = output_size
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -47,9 +47,9 @@ class RNN_Decoder(nn.Module):
         return out_pm, out_prob, hidden_state
 
 
-class RNN(nn.Module):
+class GRU(nn.Module):
     def __init__(self,  input_seq_len, output_seq_len, confidence, number_layer,input_size=2, output_size=1, hidden_size=12):
-        super(RNN, self).__init__()
+        super(GRU, self).__init__()
         self.output_seq_len = output_seq_len
         self.input_size = input_size
         self.number_layer = number_layer
@@ -57,8 +57,8 @@ class RNN(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.confidence = confidence
-        self.encoder = RNN_Encoder(self.input_size, self.hidden_size, self.number_layer)
-        self.decoder = RNN_Decoder(
+        self.encoder = GRU_Encoder(self.input_size, self.hidden_size, self.number_layer)
+        self.decoder = GRU_Decoder(
             self.input_size, self.output_size, self.hidden_size, self.number_layer)
 
     def forward(self, x):
@@ -114,7 +114,6 @@ class RNN(nn.Module):
                 binary_loss = criterion_binary(outputs_prob, y2)
                 # print('linear_loss', linear_loss.item())
                 # print('binary_loss', binary_loss.item())
-                # print('coef: ',binary_loss.item() / linear_loss.item())
                 loss = (1 - coefficient) * linear_loss + \
                     coefficient * binary_loss
 
@@ -225,7 +224,7 @@ class RNN(nn.Module):
         print(f"Loss RMSE: {loss_rmse}")
         print(f"Loss MAPE: {loss_mape}")
         print(f"R2: {r2}")
-
+        
         return loss_mae, loss_rmse, loss_mape
         # plot_results(y_original, y_predict, 'output/', 'test.png')
 

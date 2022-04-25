@@ -1,9 +1,9 @@
-from LSTMmodel import *
-from RNNmodel import *
-from GRUmodel import *
-from utils import *
-from init import *
-from dataset import *
+from model.LSTMmodel import *
+from model.RNNmodel import *
+from model.GRUmodel import *
+from model.utils import *
+from model.init import *
+from model.dataset import *
 
 def prepare_test(input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len):
     df = pd.read_csv(input_path)

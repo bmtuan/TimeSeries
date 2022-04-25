@@ -1,4 +1,4 @@
-from init import *
+from model.init import *
 
 
 class PMDataset(Dataset):
