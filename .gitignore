@@ -4,3 +4,5 @@ environment.yml
 checkpoint/
 output/
 result/
+.vscode/
+visualize/
