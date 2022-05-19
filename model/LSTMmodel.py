@@ -110,15 +110,10 @@ class LSTM(nn.Module):
 
         return outputs, outputs_prob
 
-    def train(
-        self,
-        train_iterator,
-        valid_iterator,
-        learning_rate,
-        num_epochs,
-        coefficient,
-        model_path,
-    ):
+    def train(self, train_iterator, valid_iterator, learning_rate, num_epochs, coefficient, model_path):
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
+
         list_train_loss = []
         list_val_loss = []
         loss1 = []
@@ -178,7 +173,8 @@ class LSTM(nn.Module):
                 val_binary_loss = binary_loss_item / len(valid_iterator)
 
                 if val_loss < best_loss:
-                    torch.save(self.state_dict(), model_path)
+                    name = f'{epoch}_{val_loss}.pth'
+                    torch.save(self.state_dict(), os.path.join(model_path, name))
                     print(f"\tSave best checkpoint with best loss: {val_loss:.4f}")
                     best_loss = val_loss
             scheduler.step()
@@ -187,8 +183,8 @@ class LSTM(nn.Module):
             list_train_loss.append(train_loss)
             list_val_loss.append(val_loss)
             print(f"\t Val loss: {epoch_val_loss / len(valid_iterator):.4f}")
-        plot_metrics(loss1, loss2, "output/", "metric1.png")
-        plot_metrics(list_train_loss, list_val_loss, "output/", "metric2.png")
+        plot_metrics(loss1, loss2, "output/", "individual.png")
+        plot_metrics(list_train_loss, list_val_loss, "output/", "loss.png")
 
     def predict(self, iterator, sc_test, confidence):
         y_linear_original = []
@@ -268,9 +264,7 @@ class LSTM(nn.Module):
         }
 
     def predict_real_time(self, input_tensor, confidence):
-        linear_outputs, prob_output = self.forward(
-            input_tensor
-        )  # batch_size, output_seq, num_feature
+        linear_outputs, prob_output = self.forward(input_tensor)  # batch_size, output_seq, num_feature
         prob_output = prob_output.detach().numpy()
         # print(prob_output)
         prob_output = 1 - prob_output
@@ -283,17 +277,7 @@ class LSTM(nn.Module):
 
         return y_linear_predict, prob_output
 
-    def eval_realtime(
-        self,
-        test_df,
-        input_length,
-        output_length,
-        confidence,
-        sc_test,
-        synthetic_threshold,
-        synthetic_seq_len,
-        name,
-    ):
+    def eval_realtime(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 
@@ -393,17 +377,7 @@ class LSTM(nn.Module):
 
         return percent_save, loss_mape
 
-    def eval_realtime_2(
-        self,
-        test_df,
-        input_length,
-        output_length,
-        confidence,
-        sc_test,
-        synthetic_threshold,
-        synthetic_seq_len,
-        name,
-    ):
+    def eval_realtime_2(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 
@@ -533,17 +507,7 @@ class LSTM(nn.Module):
 
         return percent_save, loss_mape
 
-    def eval_realtime_3(
-        self,
-        test_df,
-        input_length,
-        output_length,
-        confidence,
-        sc_test,
-        synthetic_threshold,
-        synthetic_seq_len,
-        name,
-    ):
+    def eval_realtime_3(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 
@@ -707,17 +671,7 @@ class LSTM(nn.Module):
 
         return y_predict, is_on
 
-    def eval_realtime_4(
-        self,
-        test_df,
-        input_length,
-        output_length,
-        confidence,
-        sc_test,
-        synthetic_threshold,
-        synthetic_seq_len,
-        name,
-    ):
+    def eval_realtime_4(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 

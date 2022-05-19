@@ -88,11 +88,11 @@ def plot_metrics(train_loss, val_loss, folder, filename):
 
     plt.figure(figsize=(20, 8))
     plt.title("Loss")
-    plt.plot(train_loss, label="train")
-    plt.plot(val_loss, label="val")
+    plt.plot(train_loss, label="train/linear")
+    plt.plot(val_loss, label="val/binary")
     plt.xlabel("Epoch")
     plt.legend(loc="upper center")
-    plt.savefig(folder + filename)  # save the figure to file
+    plt.savefig(os.path.join(folder,filename))  # save the figure to file
 
 
 def plot_results(y_original, y_predict, folder, filename, y_inference=None):
@@ -180,10 +180,12 @@ def boolean(string):
 def preprocess(dataset):
     df = DataFrame()
     previous_row = None
-
+    print('preprocess..')
     for _, row in dataset.iterrows():
         # date_time = datetime.strptime(row["time"], "%Y-%m-%d %H:%M:%S")
+
         date_time = row["time"]
+        # date_time = row["datetime"]
         minute = int(date_time.strftime("%M"))
         if len(df.index) == 0:
             df = df.append(row, ignore_index=True)
