@@ -11,7 +11,10 @@ def prepare(
     input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len
 ):
     df = pd.read_csv(input_path)
-    
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    print(len(df))
+    df = preprocess(df)
+    print(len(df))
     ignore_colum = [
         "time",
         "datetime",
@@ -76,7 +79,7 @@ if __name__ == "__main__":
         "--input_path",
         help="path of file csv",
         type=str,
-        default="data/fimi_14_0405.csv",
+        default="data/final_envitus.csv",
     )
     parser.add_argument(
         "-ep", "--epochs", help="Number of training epochs", type=int, default=50
@@ -106,7 +109,7 @@ if __name__ == "__main__":
         "--model_path",
         help="path of save model",
         type=str,
-        default="checkpoint/mediumLSTM_0405.pth",
+        default="checkpoint/smallLSTM.pth",
     )
     parser.add_argument(
         "-syn_thresh",
@@ -146,21 +149,21 @@ if __name__ == "__main__":
         input_seq_len=args.input_seq_len,
         output_seq_len=args.output_seq_len,
         confidence=args.confidence,
-        number_layer=2,
+        number_layer=1,
         input_size=2,
         hidden_size=64,
     )
     model.to(device)
 
     # # train phase
-    model.train(
-        model_path=args.model_path,
-        train_iterator=train_iterator,
-        valid_iterator=valid_iterator,
-        num_epochs=args.epochs,
-        learning_rate=args.learning_rate,
-        coefficient=args.coefficient_loss,
-    )
+    # model.train(
+    #     model_path=args.model_path,
+    #     train_iterator=train_iterator,
+    #     valid_iterator=valid_iterator,
+    #     num_epochs=args.epochs,
+    #     learning_rate=args.learning_rate,
+    #     coefficient=args.coefficient_loss,
+    # )
 
     # test phase
     model.load_state_dict(copyStateDict(torch.load(args.model_path)))

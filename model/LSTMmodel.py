@@ -1,5 +1,6 @@
-from model.init import *
-from model.utils import *
+from re import I
+from init import *
+from utils import *
 
 
 class LSTM_Encoder(nn.Module):
@@ -291,6 +292,7 @@ class LSTM(nn.Module):
         sc_test,
         synthetic_threshold,
         synthetic_seq_len,
+        name,
     ):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
@@ -346,10 +348,10 @@ class LSTM(nn.Module):
                 y_predict = y_predict + y_pred_inv[:flag].reshape(-1).tolist()
                 input = np.concatenate((input, linear_output[:flag]))
                 y_predict = (
-                    y_predict + pm2_5[flag + i : flag + i + 30].reshape(-1).tolist()
+                    y_predict + pm2_5[flag + i : flag + i + 10].reshape(-1).tolist()
                 )
-                input = np.concatenate((input, pm2_5_copy[flag + i : flag + i + 30]))
-                i += flag + 30
+                input = np.concatenate((input, pm2_5_copy[flag + i : flag + i + 10]))
+                i += flag + 10
             else:
                 y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
                 input = np.concatenate((input, linear_output))
@@ -382,8 +384,12 @@ class LSTM(nn.Module):
         print(f"Loss RMSE: {loss_rmse:.4f}")
         print(f"Loss MAPE: {loss_mape:.4f}")
         print(f"R2: {r2:.4f}")
-        # plot_results(pm2_5, pm2_5_predict.reshape(-1), 'output/',
-        #              'inference.png', y_predict)
+        plot_results(
+            pm2_5,
+            y_predict,
+            "output/",
+            f"inference_{name}_{confidence}.png",
+        )
 
         return percent_save, loss_mape
 
@@ -396,6 +402,7 @@ class LSTM(nn.Module):
         sc_test,
         synthetic_threshold,
         synthetic_seq_len,
+        name,
     ):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
@@ -452,12 +459,12 @@ class LSTM(nn.Module):
                 y_predict = y_predict + y_pred_inv[:flag].reshape(-1).tolist()
                 input = np.concatenate((input, linear_output[:flag]))
 
-                y_predict = (
-                    y_predict + pm2_5[flag + i : flag + i + 20].reshape(-1).tolist()
-                )
-                input = np.concatenate((input, pm2_5_copy[flag + i : flag + i + 20]))
+                # y_predict = (
+                #     y_predict + pm2_5[flag + i : flag + i + 10].reshape(-1).tolist()
+                # )
+                # input = np.concatenate((input, pm2_5_copy[flag + i : flag + i + 10]))
 
-                i += flag + 20
+                # i += flag + 10
                 for index, _ in enumerate(pm2_5[i:]):
                     # print(index)
                     y_predict.append(float(pm2_5[i + index]))
@@ -467,13 +474,17 @@ class LSTM(nn.Module):
                     )
                     loss_mape_check = (
                         mean_absolute_percentage_error(
-                            pm2_5[: len(y_predict)], y_predict
+                            pm2_5[i : i + index+1], y_predict[-index-1:]
                         )
                         * 100
                     )
-                    if loss_mape_check < 20:
+                    if loss_mape_check < 2:
+                        # print(i)
+                        # print(loss_mape_check)
+                        i += index + 1
                         break
-                i += index + 1
+                    
+
             else:
                 y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
                 input = np.concatenate((input, linear_output))
@@ -487,8 +498,8 @@ class LSTM(nn.Module):
             )
             turn_on = turn_on + turn_on_synthetic[-(len(input) - len(turn_on)) :]
 
-        print("pm2_5:", len(pm2_5))
-        print("y_predict:", len(y_predict))
+        # print("pm2_5:", len(pm2_5))
+        # print("y_predict:", len(y_predict))
         # cal loss
 
         percent_save = cal_energy(count, len(pm2_5)) * 100
@@ -502,6 +513,10 @@ class LSTM(nn.Module):
 
         loss_mape = mean_absolute_percentage_error(pm2_5, y_predict[: len(pm2_5)]) * 100
         r2 = r2_score(pm2_5, y_predict[: len(pm2_5)])
+
+        percent_save = cal_energy(count, len(pm2_5)) * 100
+        if percent_save > 100:
+            percent_save = 100
         print(f"{count}/{len(pm2_5)}")
         print(f"Save {percent_save}% times")
         print(f"Loss MAE: {loss_mae:.4f}")
@@ -509,15 +524,131 @@ class LSTM(nn.Module):
         print(f"Loss MAPE: {loss_mape:.4f}")
         print(f"R2: {r2:.4f}")
 
+        plot_results(
+            pm2_5,
+            y_predict,
+            "output/",
+            f"inference_{name}_{confidence}.png",
+        )
+
         return percent_save, loss_mape
 
-    def inference(
+    def eval_realtime_3(
         self,
         test_df,
         input_length,
+        output_length,
         confidence,
         sc_test,
+        synthetic_threshold,
+        synthetic_seq_len,
+        name,
     ):
+        pm2_5 = test_df.iloc[:, 0:1].values
+        turn_on_list = test_df.iloc[:, 1:2].values
+
+        pm2_5_copy = copy.deepcopy(pm2_5)
+        # inverse scale
+        number_feature = len(test_df.columns)
+        pm2_5 = np.repeat(pm2_5, number_feature, 1)
+        pm2_5 = sc_test.inverse_transform(pm2_5)
+        pm2_5 = pm2_5[:, 0].reshape(len(pm2_5), 1)
+
+        y_predict = []
+        pm2_5_predict = pm2_5[:input_length]
+
+        input = pm2_5_copy[0:input_length]
+        turn_on = turn_on_list[0:input_length]
+        turn_on = turn_on.reshape(-1).tolist()
+        i = 0
+        count = 0
+
+        while i < len(pm2_5):
+            # prepare input
+            feature = input[len(input) - input_length : len(input)]
+            feature_sc = np.repeat(feature, number_feature, 1)
+            feature_sc = sc_test.inverse_transform(feature_sc)
+            feature_sc = feature_sc[:, 0].reshape(input_length, 1)
+
+            turn_on_input = np.array(turn_on[-input_length:])
+            turn_on_input = turn_on_input.reshape(input_length, 1)
+            feature = np.concatenate((feature, turn_on_input), axis=1)
+            feature = feature.reshape(1, feature.shape[0], feature.shape[1])
+            tensor_x = torch.tensor(feature)
+            tensor_x = tensor_x.to(device)
+            linear_output, prob_output = self.predict_real_time(
+                tensor_x.float(), confidence=confidence
+            )
+            linear_output = linear_output.reshape(linear_output.shape[0], 1)
+            y_preds = np.repeat(linear_output, 2, 1)
+            y_inv = sc_test.inverse_transform(y_preds)
+            y_pred_inv = y_inv[:, 0]
+            y_pred_inv = y_pred_inv.reshape(y_pred_inv.shape[0], 1)
+            y_pred_inv = np.round(y_pred_inv, 1)
+            pm2_5_predict = np.concatenate([pm2_5_predict, y_pred_inv])
+
+            # flag = -1
+
+            # for index, prob in enumerate(prob_output):
+            #     if prob:
+            #         flag = index
+            #         break
+            # if flag != -1:
+            #     count += flag
+            #     y_predict = y_predict + y_pred_inv[:flag].reshape(-1).tolist()
+            #     input = np.concatenate((input, linear_output[:flag]))
+            #     y_predict = (
+            #         y_predict + pm2_5[flag + i : flag + i + 10].reshape(-1).tolist()
+            #     )
+            #     input = np.concatenate((input, pm2_5_copy[flag + i : flag + i + 10]))
+            #     i += flag + 10
+            # else:
+            y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
+            input = np.concatenate((input, linear_output))
+            i += output_length
+            count += len(linear_output.tolist())
+            y_predict = y_predict + pm2_5[i : +i + 10].reshape(-1).tolist()
+            input = np.concatenate((input, pm2_5_copy[i : i + 10]))
+            i += 10
+            turn_on_synthetic = cal_synthetic_turn_on(
+                synthetic_threshold,
+                synthetic_seq_len,
+                y_predict[-(output_length + 10) :],
+            )
+            turn_on = turn_on + turn_on_synthetic[-(len(input) - len(turn_on)) :]
+
+        # cal loss
+        loss_mae = mean_absolute_error(pm2_5, y_predict[: len(pm2_5)])
+        loss_rmse = mean_squared_error(pm2_5, y_predict[: len(pm2_5)], squared=False)
+
+        pm2_5 = [i + 1 for i in pm2_5]
+        y_predict = [i + 1 for i in y_predict]
+
+        loss_mape = mean_absolute_percentage_error(pm2_5, y_predict[: len(pm2_5)]) * 100
+        r2 = r2_score(pm2_5, y_predict[: len(pm2_5)])
+        # percent_save = count/len(pm2_5)*100
+        percent_save = cal_energy(count, len(pm2_5)) * 100
+        if percent_save > 100:
+            percent_save = 100
+        # print(f"{count}/{len(pm2_5)}")
+        # print(f"Save {percent_save}% times")
+        # print(f"Loss MAE: {loss_mae:.4f}")
+        # print(f"Loss RMSE: {loss_rmse:.4f}")
+        # print(f"Loss MAPE: {loss_mape:.4f}")
+        # print(f"R2: {r2:.4f}")
+        print("pm2_5:", len(pm2_5))
+        print("pm2_5_predict:", len(pm2_5_predict.reshape(-1)))
+        print("y_predict:", len(y_predict))
+        plot_results(
+            pm2_5,
+            y_predict,
+            "output/",
+            f"inference_{name}.png",
+        )
+
+        return percent_save, loss_mape
+
+    def inference(self, test_df, input_length, confidence, sc_test):
         test_df = test_df[-input_length - 10 :]
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
@@ -550,7 +681,6 @@ class LSTM(nn.Module):
         linear_output, prob_output = self.predict_real_time(
             tensor_x.float(), confidence=confidence
         )
-        print(prob_output)
         linear_output = linear_output.reshape(linear_output.shape[0], 1)
         y_preds = np.repeat(linear_output, 2, 1)
         y_inv = sc_test.inverse_transform(y_preds)
@@ -565,15 +695,115 @@ class LSTM(nn.Module):
                 break
 
         if flag != -1:
-            # y_predict = y_predict + y_pred_inv[:flag].reshape(-1).tolist()
-            # is_on = [False for i in range(flag)]
-
-            # y_predict.append(None)
-            # is_on.append(True)
-            y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
-            is_on = [False for i in range(len(y_pred_inv))]
+            y_predict = y_predict + y_pred_inv[:flag].reshape(-1).tolist()
+            is_on = [False for i in range(flag)]
+            y_predict.extend(None for i in range(10))
+            is_on.extend(True for i in range(10))
+            # y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
+            # is_on = [False for i in range(len(y_pred_inv))]
         else:
             y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
             is_on = [False for i in range(len(y_pred_inv))]
 
         return y_predict, is_on
+
+    def eval_realtime_4(
+        self,
+        test_df,
+        input_length,
+        output_length,
+        confidence,
+        sc_test,
+        synthetic_threshold,
+        synthetic_seq_len,
+        name,
+    ):
+        pm2_5 = test_df.iloc[:, 0:1].values
+        turn_on_list = test_df.iloc[:, 1:2].values
+
+        pm2_5_copy = copy.deepcopy(pm2_5)
+        # inverse scale
+        number_feature = len(test_df.columns)
+        pm2_5 = np.repeat(pm2_5, number_feature, 1)
+        pm2_5 = sc_test.inverse_transform(pm2_5)
+        pm2_5 = pm2_5[:, 0].reshape(len(pm2_5), 1)
+
+        y_predict = []
+        pm2_5_predict = pm2_5[:input_length]
+
+        input = pm2_5_copy[0:input_length]
+        turn_on = turn_on_list[0:input_length]
+        turn_on = turn_on.reshape(-1).tolist()
+        i = 0
+        count = 0
+
+        while i < len(pm2_5):
+            # prepare input
+            feature = input[len(input) - input_length : len(input)]
+            feature_sc = np.repeat(feature, number_feature, 1)
+            feature_sc = sc_test.inverse_transform(feature_sc)
+            feature_sc = feature_sc[:, 0].reshape(input_length, 1)
+
+            turn_on_input = np.array(turn_on[-input_length:])
+            turn_on_input = turn_on_input.reshape(input_length, 1)
+            feature = np.concatenate((feature, turn_on_input), axis=1)
+            feature = feature.reshape(1, feature.shape[0], feature.shape[1])
+            tensor_x = torch.tensor(feature)
+            tensor_x = tensor_x.to(device)
+            linear_output, prob_output = self.predict_real_time(
+                tensor_x.float(), confidence=confidence
+            )
+            linear_output = linear_output.reshape(linear_output.shape[0], 1)
+            y_preds = np.repeat(linear_output, 2, 1)
+            y_inv = sc_test.inverse_transform(y_preds)
+            y_pred_inv = y_inv[:, 0]
+            y_pred_inv = y_pred_inv.reshape(y_pred_inv.shape[0], 1)
+            y_pred_inv = np.round(y_pred_inv, 1)
+            pm2_5_predict = np.concatenate([pm2_5_predict, y_pred_inv])
+
+            y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
+            input = np.concatenate((input, linear_output))
+            i += output_length
+            count += len(linear_output.tolist())
+
+            std_check = np.std(y_predict[-4:])
+            print("std_check: ", std_check)
+            if std_check > 0.1:
+                y_predict = y_predict + pm2_5[i : +i + 10].reshape(-1).tolist()
+                input = np.concatenate((input, pm2_5_copy[i : i + 10]))
+                i += 10
+
+            turn_on_synthetic = cal_synthetic_turn_on(
+                synthetic_threshold,
+                synthetic_seq_len,
+                y_predict[-(output_length + 10) :],
+            )
+            turn_on = turn_on + turn_on_synthetic[-(len(input) - len(turn_on)) :]
+
+        # cal loss
+        loss_mae = mean_absolute_error(pm2_5, y_predict[: len(pm2_5)])
+        loss_rmse = mean_squared_error(pm2_5, y_predict[: len(pm2_5)], squared=False)
+
+        pm2_5 = [i + 1 for i in pm2_5]
+        y_predict = [i + 1 for i in y_predict]
+
+        loss_mape = mean_absolute_percentage_error(pm2_5, y_predict[: len(pm2_5)]) * 100
+        r2 = r2_score(pm2_5, y_predict[: len(pm2_5)])
+        # percent_save = count/len(pm2_5)*100
+        percent_save = cal_energy(count, len(pm2_5)) * 100
+        if percent_save > 100:
+            percent_save = 100
+        print(f"{count}/{len(pm2_5)}")
+        print(f"Save {percent_save}% times")
+        print(f"Loss MAE: {loss_mae:.4f}")
+        print(f"Loss RMSE: {loss_rmse:.4f}")
+        print(f"Loss MAPE: {loss_mape:.4f}")
+        print(f"R2: {r2:.4f}")
+        plot_results(
+            pm2_5,
+            y_predict,
+            "output/",
+            f"inference_{name}.png",
+        )
+
+        return percent_save, loss_mape

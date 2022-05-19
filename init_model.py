@@ -4,7 +4,7 @@ from model.utils import *
 
 
 def load_model(
-    snapshot="model/checkpoint/mediumLSTM_0405.pth",
+    snapshot="model/checkpoint/smallLSTM.pth",
     input_length=180,
     output_length=30,
     c_score=0.5,
@@ -13,7 +13,7 @@ def load_model(
         input_seq_len=input_length,
         output_seq_len=output_length,
         confidence=c_score,
-        number_layer=2,
+        number_layer=1,
         input_size=2,
         hidden_size=64,
     )

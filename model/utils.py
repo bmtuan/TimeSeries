@@ -1,5 +1,5 @@
-from model.init import *
-from model.dataset import *
+from init import *
+from dataset import *
 
 
 def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
@@ -44,7 +44,7 @@ def get_train_valid_test_data(df):
 
 
 def get_test_data(df):
-    base_df = pd.read_csv("model/data/fimi_14_0405.csv")
+    base_df = pd.read_csv("data/final_envitus.csv")
     ignore_colum = [
         "time",
         "datetime",
@@ -138,8 +138,11 @@ def prepare_test(
 ):
 
     df = pd.read_csv(input_path)
+    df["time"] = pd.to_datetime(df["time"])
+    df = preprocess(df)
     # ignore_colum = ["datetime", "Unnamed: 0", "NO2", "SO2", "PM1_0", "CO"]
     ignore_colum = [
+        "time",
         "datetime",
         "Unnamed: 0",
         "CO",
@@ -177,9 +180,10 @@ def boolean(string):
 def preprocess(dataset):
     df = DataFrame()
     previous_row = None
+
     for _, row in dataset.iterrows():
-        # date_time = datetime.strptime(row["datetime"], "%Y-%m-%dT%H:%M:%S")
-        date_time = row["datetime"]
+        # date_time = datetime.strptime(row["time"], "%Y-%m-%d %H:%M:%S")
+        date_time = row["time"]
         minute = int(date_time.strftime("%M"))
         if len(df.index) == 0:
             df = df.append(row, ignore_index=True)
@@ -194,11 +198,10 @@ def preprocess(dataset):
                 while (minute - 1 != previous_minute) and (
                     minute + 59 != previous_minute
                 ):
-                    print(type(previous_row))
-                    previous_row["datetime"] = previous_row["datetime"] + pd.DateOffset(
+                    previous_row["time"] = previous_row["time"] + pd.DateOffset(
                         minutes=1
                     )
-                    previous_minute = int(previous_row["datetime"].strftime("%M"))
+                    previous_minute = int(previous_row["time"].strftime("%M"))
                     df = df.append(previous_row, ignore_index=True)
                     df = df.append(row, ignore_index=True)
 

@@ -63,7 +63,7 @@ def process(model, at_least=300):
     gt_dict = {"datetime": datatime, "PM2_5": base_pm2_5}
 
     base_df = pd.DataFrame(gt_dict)
-    # base_df = preprocess(df_result)
+    base_df = preprocess(base_df)
 
     inference_df, sc_test = prepare_inference(
         df=base_df,
@@ -92,8 +92,8 @@ def process(model, at_least=300):
     gt_dict = {"datetime": datatime, "PM2_5": gt_pm2_5}
 
     df_result = pd.DataFrame(gt_dict)
-    # gt_df = preprocess(df_result)
-    gt_df = df_result
+    gt_df = preprocess(df_result)
+    # gt_df = df_result
     print("base_pm2_5 ", len(base_df["PM2_5"][-input_length:]))
     print("pred_pm2_5 ", len(pred_pm2_5))
     print("gt_pm2_5 ", len(gt_df["PM2_5"][:output_length]))
