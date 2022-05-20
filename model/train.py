@@ -3,20 +3,17 @@ from LSTMmodel import *
 # from RNNmodel import *
 # from GRUmodel import *
 from utils import *
-import torch.nn as nn
-from torch.autograd import Variable
-from torch import optim
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
+
 # from torch.utils.data import Dataset
 import torch
+
 # from torch.utils.tensorboard import SummaryWriter
 import warnings
+
 warnings.filterwarnings("ignore")
 import pandas as pd
 
-
-from collections import OrderedDict
 
 device = torch.device("cuda:%d" % 0 if torch.cuda.is_available() else "cpu")
 print(device)
@@ -32,7 +29,17 @@ def prepare(
     print(len(df))
     df = preprocess(df)
     print(len(df))
-    ignore_colum = ["time","datetime","Unnamed: 0","NO2","SO2","humidity","PM10","temp","CO",]
+    ignore_colum = [
+        "time",
+        "datetime",
+        "Unnamed: 0",
+        "NO2",
+        "SO2",
+        # "humidity",
+        # "PM10",
+        # "temp",
+        # "CO",
+    ]
     for column in ignore_colum:
         if column in df.columns:
             df.drop(column, axis=1, inplace=True)
@@ -49,40 +56,117 @@ def prepare(
     valid_dataset = PMDataset(valid_df, input_len=input_len, output_len=output_len)
     test_dataset = PMDataset(test_df, input_len=input_len, output_len=output_len)
     # use drop_last to get rid of last batch
-    train_iterator = DataLoader(train_dataset, batch_size=32, shuffle=False, drop_last=True)
-    valid_iterator = DataLoader(valid_dataset, batch_size=32, shuffle=False, drop_last=True)
-    test_iterator = DataLoader(test_dataset, batch_size=32, shuffle=False, drop_last=True)
+    train_iterator = DataLoader(
+        train_dataset, batch_size=32, shuffle=False, drop_last=True
+    )
+    valid_iterator = DataLoader(
+        valid_dataset, batch_size=32, shuffle=False, drop_last=True
+    )
+    test_iterator = DataLoader(
+        test_dataset, batch_size=32, shuffle=False, drop_last=True
+    )
 
-    return train_df ,valid_df ,test_df ,train_iterator ,valid_iterator ,test_iterator ,sc_train ,sc_val ,sc_test
+    return (
+        train_df,
+        valid_df,
+        test_df,
+        train_iterator,
+        valid_iterator,
+        test_iterator,
+        sc_train,
+        sc_val,
+        sc_test,
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c","--confidence",help="Confidence score to predict",type=float,default=0.5,)
-    parser.add_argument("-in","--input_path",help="path of file csv",type=str,default="data/final_envitus.csv",)
-    parser.add_argument("-ep", "--epochs", help="Number of training epochs", type=int, default=100)
-    parser.add_argument("-in_seq","--input_seq_len",help="input sequence length",type=int,default=180)
-    parser.add_argument("-out_seq","--output_seq_len",help="output sequence length",type=int,default=30)
-    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=5e-5)
-    parser.add_argument("-coef", "--coefficient_loss", help="coefficent loss", type=float, default=1e-2)
-    parser.add_argument("-path","--model_path",help="path of save model",type=str,default="checkpoint/LSTM",)
-    parser.add_argument("-syn_thresh","--synthetic_threshold",help="synthetic_threshold",type=float,default=0.5,)
-    parser.add_argument("-syn_seq","--synthetic_seq_len",help="synthetic sequence length",type=int,default=4)
+    parser.add_argument(
+        "-c",
+        "--confidence",
+        help="Confidence score to predict",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument(
+        "-in",
+        "--input_path",
+        help="path of file csv",
+        type=str,
+        default="data/final_envitus.csv",
+    )
+    parser.add_argument(
+        "-ep", "--epochs", help="Number of training epochs", type=int, default=100
+    )
+    parser.add_argument(
+        "-in_seq",
+        "--input_seq_len",
+        help="input sequence length",
+        type=int,
+        default=180,
+    )
+    parser.add_argument(
+        "-out_seq",
+        "--output_seq_len",
+        help="output sequence length",
+        type=int,
+        default=30,
+    )
+    parser.add_argument(
+        "-lr", "--learning_rate", help="learning rate", type=float, default=1e-4
+    )
+    parser.add_argument(
+        "-coef", "--coefficient_loss", help="coefficent loss", type=float, default=1e-1
+    )
+    parser.add_argument(
+        "-path",
+        "--model_path",
+        help="path of save model",
+        type=str,
+        default="checkpoint/LSTM",
+    )
+    parser.add_argument(
+        "-syn_thresh",
+        "--synthetic_threshold",
+        help="synthetic_threshold",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument(
+        "-syn_seq",
+        "--synthetic_seq_len",
+        help="synthetic sequence length",
+        type=int,
+        default=4,
+    )
     args = parser.parse_args()
 
-    train_df, valid_df, test_df, train_iterator, valid_iterator, test_iterator, sc_train, sc_val, sc_test = prepare(
+    (
+        train_df,
+        valid_df,
+        test_df,
+        train_iterator,
+        valid_iterator,
+        test_iterator,
+        sc_train,
+        sc_val,
+        sc_test,
+    ) = prepare(
         input_path=args.input_path,
         synthetic_threshold=args.synthetic_threshold,
         synthetic_sequence_length=args.synthetic_seq_len,
         input_len=args.input_seq_len,
-        output_len=args.output_seq_len)
+        output_len=args.output_seq_len,
+    )
 
-    model = LSTM(input_seq_len=args.input_seq_len,
+    model = LSTM(
+        input_seq_len=args.input_seq_len,
         output_seq_len=args.output_seq_len,
         confidence=args.confidence,
         number_layer=2,
-        input_size=2,
-        hidden_size=64)
+        input_size=len(train_df.columns),
+        hidden_size=256,
+    )
 
     model.to(device)
 
@@ -97,7 +181,7 @@ if __name__ == "__main__":
     )
 
     # test phase
-    model.load_state_dict(copyStateDict(torch.load(args.model_path)))
+    # model.load_state_dict(copyStateDict(torch.load('/media/aimenext/disk1/tuanbm/TimeSerires/model/checkpoint/LSTM/99_0.011958550283606484.pth')))
     # print('test batch')
     model.predict(iterator=test_iterator, sc_test=sc_test, confidence=args.confidence)
 

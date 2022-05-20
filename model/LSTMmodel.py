@@ -1,6 +1,7 @@
 from re import I
 from init import *
 from utils import *
+from datetime import datetime
 
 
 class LSTM_Encoder(nn.Module):
@@ -81,7 +82,7 @@ class LSTM(nn.Module):
             self.input_size, self.hidden_size, self.number_layer
         )
         self.decoder = LSTM_Decoder(
-            2, self.output_size, self.hidden_size, self.number_layer
+            self.input_size, self.output_size, self.hidden_size, self.number_layer
         )
 
     def forward(self, x):
@@ -91,8 +92,7 @@ class LSTM(nn.Module):
 
         decoder_input = torch.zeros(x.shape[0], 1, 2).cuda()
         # decoder_input = x[:, -1, :]
-        # decoder_input = torch.reshape(
-        #     decoder_input, (x.shape[0], 1, x.shape[2]))
+        # decoder_input = torch.reshape(decoder_input, (x.shape[0], 1, x.shape[2]))
         decoder_hidden = encoder_hidden
         for t in range(self.output_seq_len):
             out_linear, out_prob, decoder_hidden = self.decoder(
@@ -110,7 +110,19 @@ class LSTM(nn.Module):
 
         return outputs, outputs_prob
 
-    def train(self, train_iterator, valid_iterator, learning_rate, num_epochs, coefficient, model_path):
+    def train(
+        self,
+        train_iterator,
+        valid_iterator,
+        learning_rate,
+        num_epochs,
+        coefficient,
+        model_path,
+    ):
+        now = datetime.now()
+
+        str_now = now.strftime("%m_%d_%Y_%H_%M")
+        model_path = model_path + "_" + str_now
         if not os.path.exists(model_path):
             os.makedirs(model_path)
 
@@ -142,6 +154,8 @@ class LSTM(nn.Module):
                 # print('linear_loss', linear_loss.item())
                 # print('binary_loss', binary_loss.item())
                 loss = (1 - coefficient) * linear_loss + coefficient * binary_loss
+                # loss = binary_loss
+                # loss = linear_loss + binary_loss
                 # loss = linear_loss + binary_loss * coef
                 # loss = (2 * linear_loss * binary_loss * coefficient) / (linear_loss + binary_loss)
                 loss.backward()
@@ -163,6 +177,7 @@ class LSTM(nn.Module):
                     linear_loss = criterion(outputs, y1)
                     binary_loss = criterion_binary(outputs_prob, y2)
                     loss = (1 - coefficient) * linear_loss + coefficient * binary_loss
+                    # loss = binary_loss
                     linear_loss_item += linear_loss.item()
                     binary_loss_item += binary_loss.item()
                     # loss = (2 * linear_loss * binary_loss) / (linear_loss + binary_loss)
@@ -173,7 +188,7 @@ class LSTM(nn.Module):
                 val_binary_loss = binary_loss_item / len(valid_iterator)
 
                 if val_loss < best_loss:
-                    name = f'{epoch}_{val_loss}.pth'
+                    name = f"{epoch}_{val_loss}.pth"
                     torch.save(self.state_dict(), os.path.join(model_path, name))
                     print(f"\tSave best checkpoint with best loss: {val_loss:.4f}")
                     best_loss = val_loss
@@ -183,8 +198,8 @@ class LSTM(nn.Module):
             list_train_loss.append(train_loss)
             list_val_loss.append(val_loss)
             print(f"\t Val loss: {epoch_val_loss / len(valid_iterator):.4f}")
-        plot_metrics(loss1, loss2, "output/", "individual.png")
-        plot_metrics(list_train_loss, list_val_loss, "output/", "loss.png")
+        plot_metrics(loss1, loss2, model_path, "individual.png")
+        plot_metrics(list_train_loss, list_val_loss, model_path, "loss.png")
 
     def predict(self, iterator, sc_test, confidence):
         y_linear_original = []
@@ -264,7 +279,9 @@ class LSTM(nn.Module):
         }
 
     def predict_real_time(self, input_tensor, confidence):
-        linear_outputs, prob_output = self.forward(input_tensor)  # batch_size, output_seq, num_feature
+        linear_outputs, prob_output = self.forward(
+            input_tensor
+        )  # batch_size, output_seq, num_feature
         prob_output = prob_output.detach().numpy()
         # print(prob_output)
         prob_output = 1 - prob_output
@@ -277,7 +294,17 @@ class LSTM(nn.Module):
 
         return y_linear_predict, prob_output
 
-    def eval_realtime(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
+    def eval_realtime(
+        self,
+        test_df,
+        input_length,
+        output_length,
+        confidence,
+        sc_test,
+        synthetic_threshold,
+        synthetic_seq_len,
+        name,
+    ):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 
@@ -377,7 +404,17 @@ class LSTM(nn.Module):
 
         return percent_save, loss_mape
 
-    def eval_realtime_2(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
+    def eval_realtime_2(
+        self,
+        test_df,
+        input_length,
+        output_length,
+        confidence,
+        sc_test,
+        synthetic_threshold,
+        synthetic_seq_len,
+        name,
+    ):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 
@@ -448,7 +485,7 @@ class LSTM(nn.Module):
                     )
                     loss_mape_check = (
                         mean_absolute_percentage_error(
-                            pm2_5[i : i + index+1], y_predict[-index-1:]
+                            pm2_5[i : i + index + 1], y_predict[-index - 1 :]
                         )
                         * 100
                     )
@@ -457,7 +494,6 @@ class LSTM(nn.Module):
                         # print(loss_mape_check)
                         i += index + 1
                         break
-                    
 
             else:
                 y_predict = y_predict + y_pred_inv.reshape(-1).tolist()
@@ -507,7 +543,17 @@ class LSTM(nn.Module):
 
         return percent_save, loss_mape
 
-    def eval_realtime_3(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
+    def eval_realtime_3(
+        self,
+        test_df,
+        input_length,
+        output_length,
+        confidence,
+        sc_test,
+        synthetic_threshold,
+        synthetic_seq_len,
+        name,
+    ):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 
@@ -671,7 +717,17 @@ class LSTM(nn.Module):
 
         return y_predict, is_on
 
-    def eval_realtime_4(self,test_df,input_length,output_length,confidence,sc_test,synthetic_threshold,synthetic_seq_len,name):
+    def eval_realtime_4(
+        self,
+        test_df,
+        input_length,
+        output_length,
+        confidence,
+        sc_test,
+        synthetic_threshold,
+        synthetic_seq_len,
+        name,
+    ):
         pm2_5 = test_df.iloc[:, 0:1].values
         turn_on_list = test_df.iloc[:, 1:2].values
 
