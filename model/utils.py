@@ -1,6 +1,14 @@
-from init import *
 from dataset import *
-
+import json
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from collections import OrderedDict
+import os
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
+from pandas import DataFrame
 
 def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
 
@@ -11,7 +19,7 @@ def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
             turn_on.append(1)
         else:
             std = np.std(
-                pm2_5[index - int(seq_length / 2) : index + int(seq_length / 2)]
+                pm2_5[index - seq_length: index]
             )
             # print(std)
             if std > threshold_std:
@@ -29,6 +37,7 @@ def scale_data(df):
 
 
 def get_train_valid_test_data(df):
+    # df = df[-100000:-70000]
     ls_col = list(df.keys())
     new_ls = ["PM2_5"]
     ls_col.remove("PM2_5")
@@ -44,27 +53,23 @@ def get_train_valid_test_data(df):
 
 
 def get_test_data(df):
-    base_df = pd.read_csv("data/final_envitus.csv")
+    base_df = pd.read_csv("data/ff_envitus.csv")
     ignore_colum = [
         "time",
         "datetime",
         "Unnamed: 0",
         "NO2",
         "SO2",
-        "humidity",
-        "PM10",
-        "temp",
-        "CO",
+        # "humidity",
+        # "PM10",
+        # "temp",
+        # "CO",
     ]
     for column in ignore_colum:
         if column in base_df.columns:
             base_df.drop(column, axis=1, inplace=True)
-    ls_col = list(base_df.keys())
-    new_ls = ["PM2_5"]
-    ls_col.remove("PM2_5")
-    new_ls.extend(ls_col)
-    new_df = base_df[new_ls]
-    _, sc_test = scale_data(new_df)
+            
+    _, sc_test = scale_data(base_df)
     test_sc = sc_test.fit_transform(df)
     test_df = pd.DataFrame(test_sc, columns=df.columns)
     return test_df, sc_test
@@ -109,7 +114,7 @@ def plot_results(y_original, y_predict, folder, filename, y_inference=None):
         plt.plot(y_inference, label="Inference")
     plt.xlabel("Time steps")
     plt.legend(loc="upper center")
-    plt.savefig(folder + filename, dpi=200)  # save the figure to file
+    plt.savefig(os.path.join(folder,filename), dpi=200)  # save the figure to file
 
 
 def cal_missing_value(df):
@@ -133,25 +138,30 @@ def cal_energy(count, total):
     return 1 - (count * w_sleep + (total - count) * w_active) / (total * w_active)
 
 
-def prepare_test(
-    input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len
-):
+def prepare_test(input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len):
 
     df = pd.read_csv(input_path)
     df["time"] = pd.to_datetime(df["time"])
-    df = preprocess(df)
+    print(len(df))
+    
+    # df = preprocess(df)
+    # print(len(df))
+    df = df[-int(0.2*len(df)):]
+    # print(len(df))
     # ignore_colum = ["datetime", "Unnamed: 0", "NO2", "SO2", "PM1_0", "CO"]
     ignore_colum = [
         "time",
         "datetime",
         "Unnamed: 0",
-        "CO",
         "NO2",
         "SO2",
-        "humidity",
-        "temp",
+        # "humidity",
         "PM10",
+        "temp",
+        # "CO",
         "PM1_0",
+        # "temperature",
+        "PM10_0"
     ]
     for column in ignore_colum:
         if column in df.columns:
@@ -161,7 +171,8 @@ def prepare_test(
     turn_on = cal_synthetic_turn_on(
         synthetic_threshold, synthetic_sequence_length, pm2_5
     )
-    df["turn_on"] = turn_on
+    # df["turn_on"] = turn_on
+    print(df.columns)
     test_df, sc_test = get_test_data(df)
 
     test_dataset = PMDataset(test_df, input_len=input_len, output_len=output_len)
@@ -231,3 +242,62 @@ def prepare_inference(
     test_df, sc_test = get_test_data(df)
 
     return test_df, sc_test
+
+
+def save_train_info(dict_data, path_save):
+    with open(os.path.join(path_save,"infor.json"),"w") as file:
+        json.dump(dict_data,file)
+
+
+
+def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len, mode):
+    df = pd.read_csv(input_path)
+    df["time"] = pd.to_datetime(df["time"])
+    print(len(df))
+    ignore_colum = [
+        "time",
+        "datetime",
+        "Unnamed: 0",
+        "NO2",
+        "SO2",
+        "humidity",
+        "PM10",
+        "temp",
+        "CO",
+        "PM1_0",
+        "temperature",
+        "PM10_0"
+    ]
+    for column in ignore_colum:
+        if column in df.columns:
+            df.drop(column, axis=1, inplace=True)
+            
+    pm2_5 = df["PM2_5"].values
+    turn_on = cal_synthetic_turn_on(
+        synthetic_threshold, synthetic_sequence_length, pm2_5
+    )
+    if mode != 'normal':
+        df["turn_on"] = turn_on
+        print('turn_on: ', np.sum(turn_on))
+        
+    train_df, valid_df, test_df, sc_train, sc_val, sc_test = get_train_valid_test_data(df)
+    
+    train_dataset = PMDataset(train_df, input_len=input_len, output_len=output_len)
+    valid_dataset = PMDataset(valid_df, input_len=input_len, output_len=output_len)
+    test_dataset = PMDataset(test_df, input_len=input_len, output_len=output_len)
+    # use drop_last to get rid of last batch
+    train_iterator = DataLoader(train_dataset, batch_size=32, shuffle=False, drop_last=True)
+    valid_iterator = DataLoader(valid_dataset, batch_size=32, shuffle=False, drop_last=True)
+    test_iterator = DataLoader(test_dataset, batch_size=32, shuffle=False, drop_last=True)
+
+    return (
+        train_df,
+        valid_df,
+        test_df,
+        train_iterator,
+        valid_iterator,
+        test_iterator,
+        sc_train,
+        sc_val,
+        sc_test,
+    )
