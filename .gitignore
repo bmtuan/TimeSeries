@@ -6,3 +6,4 @@ output/
 result/
 .vscode/
 visualize/
+model/VisualizeTimeseries.ipynb

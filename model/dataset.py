@@ -12,14 +12,10 @@ class PMDataset(Dataset):
         self.X = np.array(self.data).astype(np.float32)
 
     def __getitem__(self, index):
-
         X = self.X[index : index + self.input_len, :]
-        Y1 = self.X[
-            index + self.input_len : index + self.input_len + self.output_len, 0:1
-        ]
-        Y2 = self.X[
-            index + self.input_len : index + self.input_len + self.output_len, -1:
-        ]
+        # print(self.X)
+        Y1 = self.X[index + self.input_len : index + self.input_len + self.output_len, 0:1]
+        Y2 = self.X[index + self.input_len : index + self.input_len + self.output_len, -1:]
         return X, Y1, Y2
 
     def __len__(self):

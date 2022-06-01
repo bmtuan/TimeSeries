@@ -2,13 +2,20 @@ from dataset import *
 import json
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler
 from sklearn.model_selection import train_test_split
 from collections import OrderedDict
 import os
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from pandas import DataFrame
+import copy
+import torch
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    mean_absolute_percentage_error,)
+device = torch.device("cuda:%d" % 0 if torch.cuda.is_available() else "cpu")
 
 def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
 
@@ -29,10 +36,49 @@ def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
 
     return turn_on
 
+def cal_std(seq_length, pm2_5):
+    list_std = []
+    for index, _ in enumerate(pm2_5):
+        if index < seq_length:
+            list_std.append(0)
+        else:
+            std = np.std(pm2_5[index - seq_length: index])
+            list_std.append(std)
+            
+    return list_std  
+
+def cal_confidence(pm2_5):
+    list_mape = []
+    list_c = []
+    for index, _ in enumerate(pm2_5):
+        if index == 0:
+            list_mape.append(0)
+        else:
+            mape = np.abs(pm2_5[index] - pm2_5[index-1]) / pm2_5[index]
+            list_mape.append(mape)
+    np_mape = 1 - np.array(list_mape)
+    for index, mape in enumerate(np_mape):
+        if index < 4:
+            list_c.append(mape)
+        else:
+            list_c.append(np.mean(np_mape[index-4:index+1]))
+    return list_c
+    
+            
+def remove_outlier(df_in, col_name):
+    q1 = df_in[col_name].quantile(0.1)
+    q3 = df_in[col_name].quantile(0.75)
+    iqr = q3-q1 #Interquartile range
+    fence_low  = q1-1.5*iqr
+    fence_high = q3+1.5*iqr
+    df_out = df_in.loc[(df_in[col_name] > fence_low) & (df_in[col_name] < fence_high)]
+    return df_out
 
 def scale_data(df):
     sc = MinMaxScaler()
+    # print(df)
     df_scaled = pd.DataFrame(sc.fit_transform(df), columns=df.columns)
+    # print(df_scaled)
     return df_scaled, sc
 
 
@@ -155,12 +201,12 @@ def prepare_test(input_path, synthetic_threshold, synthetic_sequence_length, inp
         "Unnamed: 0",
         "NO2",
         "SO2",
-        # "humidity",
+        "humidity",
         "PM10",
         "temp",
-        # "CO",
+        "CO",
         "PM1_0",
-        # "temperature",
+        "temperature",
         "PM10_0"
     ]
     for column in ignore_colum:
@@ -224,11 +270,7 @@ def preprocess(dataset):
     return df
 
 
-def prepare_inference(
-    df,
-    synthetic_threshold,
-    synthetic_sequence_length,
-):
+def prepare_inference(df,synthetic_threshold,synthetic_sequence_length,):
     ignore_colum = ["datetime", "Unnamed: 0", "NO2", "SO2", "PM1_0", "CO"]
     for column in ignore_colum:
         if column in df.columns:
@@ -253,7 +295,9 @@ def save_train_info(dict_data, path_save):
 def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len, mode):
     df = pd.read_csv(input_path)
     df["time"] = pd.to_datetime(df["time"])
-    print(len(df))
+    df = remove_outlier(df, 'PM2_5')
+
+    df = df[-60000:]
     ignore_colum = [
         "time",
         "datetime",
@@ -273,15 +317,10 @@ def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_le
             df.drop(column, axis=1, inplace=True)
             
     pm2_5 = df["PM2_5"].values
-    turn_on = cal_synthetic_turn_on(
-        synthetic_threshold, synthetic_sequence_length, pm2_5
-    )
-    if mode != 'normal':
-        df["turn_on"] = turn_on
-        print('turn_on: ', np.sum(turn_on))
-        
+    list_c = cal_confidence(pm2_5)
+    df['confidence'] = list_c
+
     train_df, valid_df, test_df, sc_train, sc_val, sc_test = get_train_valid_test_data(df)
-    
     train_dataset = PMDataset(train_df, input_len=input_len, output_len=output_len)
     valid_dataset = PMDataset(valid_df, input_len=input_len, output_len=output_len)
     test_dataset = PMDataset(test_df, input_len=input_len, output_len=output_len)
@@ -301,3 +340,11 @@ def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_le
         sc_val,
         sc_test,
     )
+
+def evaluate_metrics(y_original, y_predict):
+    loss_mae = mean_absolute_error(y_original, y_predict)
+    loss_rmse = mean_squared_error(y_original, y_predict, squared=False)
+    loss_mape = mean_absolute_percentage_error(y_original, y_predict) * 100
+    print(f"Loss MAE: {loss_mae}")
+    print(f"Loss RMSE: {loss_rmse}")
+    print(f"Loss MAPE: {loss_mape}")
