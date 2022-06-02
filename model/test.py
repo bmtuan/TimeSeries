@@ -61,19 +61,22 @@ if __name__ == "__main__":
     model.to(device)
     
     # test phase
-    model.load_state_dict(copyStateDict(torch.load('/media/aimenext/disk1/tuanbm/TimeSerires/model/checkpoint/_06_01_2022_22_48/99_0.0334.pth')))
-    # model.load_state_dict(copyStateDict(torch.load('/media/aimenext/disk1/tuanbm/TimeSerires/model/checkpoint/_06_01_2022_22_23/11_0.031.pth')))
+    # model.load_state_dict(copyStateDict(torch.load('/media/aimenext/disk1/tuanbm/TimeSerires/model/checkpoint/_06_01_2022_23_32/97_0.0338.pth')))
+    model.load_state_dict(copyStateDict(torch.load('/media/aimenext/disk1/tuanbm/TimeSerires/model/checkpoint/_06_01_2022_23_33/84_0.0851.pth')))
     # print('test batch')
 
-    model.predict(iterator=test_iterator, sc_test=sc_test)
+    # model.predict(iterator=test_iterator, sc_test=sc_test)
 
     # inference
-    # model.eval_realtime_4(test_df=test_df,
-                            # input_length=args.input_seq_len,
-                            # output_length=args.output_seq_len,
-                            # confidence=0,
-                            # sc_test=sc_test,
-                            # synthetic_threshold=args.synthetic_threshold,
-                            # synthetic_seq_len=args.synthetic_seq_len,
-                            # # name=input_path[:-4])
-                            # name='input_path')
+    model.inference_cyclical(test_df=test_df,
+                            input_length=args.input_seq_len,
+                            output_length=args.output_seq_len,
+                            sc_test=sc_test,
+                            name='input_path')
+    
+    model.inference_confidence(test_df=test_df,
+                            input_length=args.input_seq_len,
+                            output_length=args.output_seq_len,
+                            sc_test=sc_test,
+                            confidence=0,
+                            name='input_path')

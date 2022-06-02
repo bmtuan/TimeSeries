@@ -297,7 +297,7 @@ def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_le
     df["time"] = pd.to_datetime(df["time"])
     df = remove_outlier(df, 'PM2_5')
 
-    df = df[-60000:]
+    df = df[-20000:]
     ignore_colum = [
         "time",
         "datetime",

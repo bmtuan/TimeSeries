@@ -7,3 +7,4 @@ result/
 .vscode/
 visualize/
 model/VisualizeTimeseries.ipynb
+model/wandb/

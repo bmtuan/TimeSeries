@@ -4,7 +4,6 @@ import argparse
 import torch
 import warnings
 warnings.filterwarnings("ignore")
-import pandas as pd
 from dataset import *
 
 device = torch.device("cuda:%d" % 0 if torch.cuda.is_available() else "cpu")
@@ -15,12 +14,12 @@ if __name__ == "__main__":
     parser.add_argument("-in","--input_path",help="path of file csv",type=str,default="data/train/sensor_3.csv")
     parser.add_argument("-ep", "--epochs", help="Number of training epochs", type=int, default=100)
     parser.add_argument("-in_seq","--input_seq_len",help="input sequence length",type=int,default=10)
-    parser.add_argument("-out_seq","--output_seq_len",help="output sequence length",type=int,default=10)
-    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=1e-3)
+    parser.add_argument("-out_seq","--output_seq_len",help="output sequence length",type=int,default=1)
+    parser.add_argument("-lr", "--learning_rate", help="learning rate", type=float, default=1e-4)
     parser.add_argument("-coef", "--coefficient_loss", help="coefficent loss", type=float, default=15e-2)
     parser.add_argument("-path","--model_path",help="path of save model",type=str,default="checkpoint/")
     parser.add_argument("-syn_thresh","--synthetic_threshold",help="synthetic_threshold",type=float,default=0.3)
-    parser.add_argument("-hsize","--hidden_size",help="hidden size",type=int,default=32)
+    parser.add_argument("-hsize","--hidden_size",help="hidden size",type=int,default=64)
     parser.add_argument("-syn_seq","--synthetic_seq_len",help="synthetic sequence length",type=int,default=5)
     parser.add_argument("-num_lay","--number_layer",help="number of LSTM layer",type=int,default=2)
     parser.add_argument("-mode","--mode",help="normal or turn synthetic",type=str,default='normal')
