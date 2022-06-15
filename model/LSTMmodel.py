@@ -17,7 +17,6 @@ from sklearn.metrics import (
     recall_score,
 )
 import wandb
-# wandb.init(project="time_series", entity="bm-tuan")
 import copy
 
 device = torch.device("cuda:%d" % 0 if torch.cuda.is_available() else "cpu")
@@ -112,9 +111,12 @@ class AT_LSTM_Decoder(nn.Module):
     
     def forward(self, x, prev_hidden):
         output, (hidden_state, cell_state)= self.lstm(x, (prev_hidden))
+        # print('output', output.shape)
+        # print('hidden_state', hidden_state.shape)
         attn_output = self.attention_net(output, hidden_state)
         out_feature = self.fc1(attn_output)
-
+        # print('attn_output', attn_output.shape)
+        # print('out_feature', out_feature.shape)
         output_c = self.fc2_1(attn_output)
         output_c = self.Relu(output_c)
         output_c = self.fc2_2(output_c)
@@ -183,12 +185,15 @@ class LSTM(nn.Module):
         list_val_loss = []
         losses_feature = []
         losses_c = []
-        
+                
         best_loss = 999999
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
         # optimizer = optim.SGD(self.parameters(), lr=learning_rate, momentum=0.9)
-        criterion = RMSELoss()
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.9)
+        # criterion = RMSELoss()
+        # criterion = nn.MSELoss()
+        criterion = nn.L1Loss()
+
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.9)
 
         for epoch in tqdm(range(num_epochs)):
             epoch_train_loss = 0
@@ -204,7 +209,8 @@ class LSTM(nn.Module):
                 feature_loss = criterion(output_feature, y1)
                 c_loss = criterion(output_c, y2)
                 # loss = (1 - coefficient) * feature_loss + coefficient * c_loss
-                loss = feature_loss + c_loss
+                # loss = feature_loss + c_loss
+                loss = feature_loss
                 
                 loss.backward()
                 optimizer.step()
@@ -226,7 +232,8 @@ class LSTM(nn.Module):
                     c_loss = criterion(output_c, y2)
                     
                     # loss = (1 - coefficient) * feature_loss + coefficient * c_loss
-                    loss = feature_loss + c_loss
+                    # loss = feature_loss + c_loss
+                    loss = feature_loss
                     
                     feature_loss_item += feature_loss.item()
                     c_loss_item += c_loss.item()
@@ -236,17 +243,25 @@ class LSTM(nn.Module):
                 val_feature_loss = feature_loss_item / len(valid_iterator)
                 val_c_loss = c_loss_item / len(valid_iterator)
 
+
                 if val_loss < best_loss:
                     name = f"{epoch}_{np.round(val_loss, 4)}.pth"
                     torch.save(self.state_dict(), os.path.join(model_path, name))
-                    print(f"\tSave best checkpoint with best loss: {val_loss:.4f}")
+                    # print(f"\tSave best checkpoint with best loss: {val_loss:.4f}")
                     best_loss = val_loss
+            wandb.log({
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                # "val_feature_loss": val_feature_loss,
+                # "val_c_loss": val_c_loss
+                })
+
             scheduler.step()
             losses_feature.append(val_feature_loss)
             losses_c.append(val_c_loss)
             list_train_loss.append(train_loss)
             list_val_loss.append(val_loss)
-            print(f"\t Val loss: {epoch_val_loss / len(valid_iterator):.4f}")
+            # print(f"\t Val loss: {epoch_val_loss / len(valid_iterator):.4f}")
         plot_metrics(losses_feature, losses_c, model_path, "individual.png")
         plot_metrics(list_train_loss, list_val_loss, model_path, "loss.png")
 
@@ -266,6 +281,9 @@ class LSTM(nn.Module):
 
                 feature_predict.append(feature_output.detach().cpu().numpy()[0, :, 0].reshape(-1))
                 feature_original.append(y1.detach().cpu().numpy()[0, :, 0].reshape(-1))
+                # feature_predict.append(feature_output.detach().cpu().numpy()[1:, -1, 0].reshape(-1))
+                # feature_original.append(y1.detach().cpu().numpy()[1:, -1, 0].reshape(-1))
+                
                 c_predict.append(c_output.detach().cpu().numpy()[0, :, 0].reshape(-1))
                 c_original.append(y2.detach().cpu().numpy()[0, :, 0].reshape(-1))
                 
@@ -283,9 +301,10 @@ class LSTM(nn.Module):
         y_origs = np.repeat(y_orig_, self.input_size, 1)
         y_inv_ori = sc_test.inverse_transform(y_origs)
         y_original = y_inv_ori[:, 0]
-
+        print('feature')
         evaluate_metrics(y_original, y_predict)
-        evaluate_metrics(c_original, c_predict)
+        # print('confidence')
+        # evaluate_metrics(c_original, c_predict)
         
         plot_results(c_original,c_predict,'/media/aimenext/disk1/tuanbm/TimeSerires/model/output','test_batch_confidence.png')
         plot_results(y_original,y_predict,'/media/aimenext/disk1/tuanbm/TimeSerires/model/output','test_batch_feature.png')
@@ -753,8 +772,8 @@ class LSTM(nn.Module):
             input = np.concatenate((input, next_input[:index]))
             i += index + 1
             count += index + 1
-            input = np.concatenate((input, scale_feature[i : i + 10]))
-            i += 10
+            input = np.concatenate((input, scale_feature[i : i + 5]))
+            i += 5
 
         # cal loss
         loss_mae = mean_absolute_error(original_feature, feature_predict[:len(original_feature)])
@@ -804,7 +823,8 @@ class LSTM(nn.Module):
             index = output_length
             check_turn = False
             for idx, c in enumerate(c_output):
-                if c < 0.96:
+                # print(c)
+                if c < 0.93:
                     # index = idx
                     check_turn = True
                     break
@@ -817,8 +837,75 @@ class LSTM(nn.Module):
             i += index + 1
             count += index + 1
             if check_turn:
-                input = np.concatenate((input, scale_feature[i : i + 10]))
-                i += 10
+                input = np.concatenate((input, scale_feature[i : i + 5]))
+                i += 5
+
+        # cal loss
+        loss_mae = mean_absolute_error(original_feature, feature_predict[:len(original_feature)])
+        loss_rmse = mean_squared_error(original_feature, feature_predict[:len(original_feature)], squared=False)
+
+        loss_mape = mean_absolute_percentage_error(original_feature, feature_predict[:len(original_feature)]) * 100
+        r2 = r2_score(original_feature, feature_predict[:len(original_feature)])
+        percent_save = cal_energy(count, len(feature)) * 100
+        if percent_save > 100:
+            percent_save = 100
+            
+        print(f"{count}/{feature.shape[0]}")
+        print(f"Save {percent_save}% times")
+        print(f"Loss MAE: {loss_mae:.4f}")
+        print(f"Loss RMSE: {loss_rmse:.4f}")
+        print(f"Loss MAPE: {loss_mape:.4f}")
+        print(f"R2: {r2:.4f}")
+        # for i in range(0,1):
+        plot_results(
+            original_feature,
+            feature_predict,
+            "output/",
+            f"inference_{name}.png",
+        )
+
+
+    def inference_std(self, test_df, input_length, output_length, sc_test, name):
+        feature = test_df.iloc[:, :].values
+        scale_feature = copy.deepcopy(feature)
+        feature = sc_test.inverse_transform(feature)
+
+        original_feature = feature[:input_length,0:1]
+        feature_predict = feature[:input_length,0:1]
+        input = scale_feature[0:input_length]
+        i = 0
+        count = 0
+        while i < len(feature):
+            # prepare input
+            feature_input = input[len(input) - input_length : len(input)]
+
+            feature_input = feature_input.reshape(1, feature_input.shape[0], feature_input.shape[1])
+            tensor_x = torch.tensor(feature_input).to(device)
+            feature_output, c_output = self.predict_real_time(tensor_x.float())
+            
+            feature_output_ = np.repeat(feature_output, self.input_size, 1)
+            feature_output_ = sc_test.inverse_transform(feature_output_)
+            feature_output_ = feature_output_[:, 0:1]
+            index = output_length
+
+            feature_predict = np.concatenate([feature_predict, feature_output_[:index]])
+            original_feature = np.concatenate((original_feature, feature[i:i+index,0:-1]))
+            
+            next_input = np.concatenate((feature_output, c_output), 1)
+            input = np.concatenate((input, next_input[:index]))
+            i += index + 1
+            count += index + 1
+            check_turn = False
+            for k in range(len(feature_output_)-1):
+                # print(np.abs(feature_output_[k+1] - feature_output_[k]))
+                if np.abs(feature_output_[k+1] - feature_output_[k]) > 0.01:
+                    check_turn = True
+                    break
+            # pdb.set_trace()
+            
+            if check_turn:
+                input = np.concatenate((input, scale_feature[i : i + 5]))
+                i += 5
 
         # cal loss
         loss_mae = mean_absolute_error(original_feature, feature_predict[:len(original_feature)])

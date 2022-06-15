@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from pandas import DataFrame
 import copy
+import warnings
+warnings.filterwarnings("ignore")
 import torch
 from sklearn.metrics import (
     mean_absolute_error,
@@ -66,11 +68,11 @@ def cal_confidence(pm2_5):
     
             
 def remove_outlier(df_in, col_name):
-    q1 = df_in[col_name].quantile(0.1)
+    q1 = df_in[col_name].quantile(0.25)
     q3 = df_in[col_name].quantile(0.75)
     iqr = q3-q1 #Interquartile range
-    fence_low  = q1-1.5*iqr
-    fence_high = q3+1.5*iqr
+    fence_low  = q1-3*iqr
+    fence_high = q3+0.5*iqr
     df_out = df_in.loc[(df_in[col_name] > fence_low) & (df_in[col_name] < fence_high)]
     return df_out
 
@@ -83,7 +85,6 @@ def scale_data(df):
 
 
 def get_train_valid_test_data(df):
-    # df = df[-100000:-70000]
     ls_col = list(df.keys())
     new_ls = ["PM2_5"]
     ls_col.remove("PM2_5")
@@ -97,6 +98,16 @@ def get_train_valid_test_data(df):
 
     return train_df, val_df, test_df, sc_train, sc_val, sc_test
 
+def get_train_valid_test_data_2(df):
+    ls_col = list(df.keys())
+    new_ls = ["PM2_5"]
+    ls_col.remove("PM2_5")
+    new_ls.extend(ls_col)
+    new_df = df[new_ls]
+    train_df, valid_df = train_test_split(new_df, test_size=0.4, shuffle=False)
+    val_df, test_df = train_test_split(valid_df, test_size=0.5, shuffle=False)
+
+    return train_df, val_df, test_df
 
 def get_test_data(df):
     base_df = pd.read_csv("data/ff_envitus.csv")
@@ -166,11 +177,11 @@ def plot_results(y_original, y_predict, folder, filename, y_inference=None):
 def cal_missing_value(df):
     count = 0
     for index, row in df.iterrows():
-        minute = int(row["datetime"].strftime("%M"))
+        minute = int(row["time"].strftime("%M"))
         if index != 0:
             if (minute - 1 != previous_minute) and (minute + 59 != previous_minute):
                 count += 1
-                print(previous_minute, minute)
+                # print(previous_minute, minute)
         previous_minute = minute
     return count
 
@@ -238,25 +249,19 @@ def preprocess(dataset):
     df = DataFrame()
     previous_row = None
     print('preprocess..')
-    for _, row in dataset.iterrows():
-        # date_time = datetime.strptime(row["time"], "%Y-%m-%d %H:%M:%S")
-
+    for idx, row in dataset.iterrows():
+        print(idx)
         date_time = row["time"]
-        # date_time = row["datetime"]
         minute = int(date_time.strftime("%M"))
         if len(df.index) == 0:
             df = df.append(row, ignore_index=True)
         if previous_row is not None:
             if previous_minute == minute:
                 continue
-            if (previous_minute == minute - 1) or (
-                previous_minute == 59 and minute == 0
-            ):
+            if (previous_minute == minute - 1) or (previous_minute == 59 and minute == 0):
                 df = df.append(row, ignore_index=True)
             else:
-                while (minute - 1 != previous_minute) and (
-                    minute + 59 != previous_minute
-                ):
+                while (minute - 1 != previous_minute) and (minute + 59 != previous_minute):
                     previous_row["time"] = previous_row["time"] + pd.DateOffset(
                         minutes=1
                     )
@@ -291,11 +296,50 @@ def save_train_info(dict_data, path_save):
         json.dump(dict_data,file)
 
 
-
-def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len, mode):
+def prepare_2(input_path, input_len, output_len):
     df = pd.read_csv(input_path)
     df["time"] = pd.to_datetime(df["time"])
-    df = remove_outlier(df, 'PM2_5')
+    # df = remove_outlier(df, 'PM2_5')
+    # df = df[-20000:]
+    ignore_colum = [
+        "time",
+        "datetime",
+        "Unnamed: 0",
+        "NO2",
+        "SO2",
+        "humidity",
+        "PM10",
+        "temp",
+        "CO",
+        "PM1_0",
+        "temperature",
+        "PM10_0"
+    ]
+    for column in ignore_colum:
+        if column in df.columns:
+            df.drop(column, axis=1, inplace=True)
+
+    train_df, valid_df, test_df = get_train_valid_test_data_2(df)
+    train_dataset = PMDataset2(train_df, input_len=input_len, output_len=output_len)
+    valid_dataset = PMDataset2(valid_df, input_len=input_len, output_len=output_len)
+    test_dataset = PMDataset2(test_df, input_len=input_len, output_len=output_len)
+    # use drop_last to get rid of last batch
+    train_iterator = DataLoader(train_dataset, batch_size=32, shuffle=False, drop_last=True)
+    valid_iterator = DataLoader(valid_dataset, batch_size=32, shuffle=False, drop_last=True)
+    test_iterator = DataLoader(test_dataset, batch_size=32, shuffle=False, drop_last=True)
+    return (
+        train_df,
+        valid_df,
+        test_df,
+        train_iterator,
+        valid_iterator,
+        test_iterator)
+    
+    
+def prepare(input_path, input_len, output_len):
+    df = pd.read_csv(input_path)
+    df["time"] = pd.to_datetime(df["time"])
+    # df = remove_outlier(df, 'PM2_5')
 
     df = df[-20000:]
     ignore_colum = [
@@ -315,15 +359,11 @@ def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_le
     for column in ignore_colum:
         if column in df.columns:
             df.drop(column, axis=1, inplace=True)
-            
-    pm2_5 = df["PM2_5"].values
-    list_c = cal_confidence(pm2_5)
-    df['confidence'] = list_c
 
     train_df, valid_df, test_df, sc_train, sc_val, sc_test = get_train_valid_test_data(df)
-    train_dataset = PMDataset(train_df, input_len=input_len, output_len=output_len)
-    valid_dataset = PMDataset(valid_df, input_len=input_len, output_len=output_len)
-    test_dataset = PMDataset(test_df, input_len=input_len, output_len=output_len)
+    train_dataset = PMDataset2(train_df, input_len=input_len, output_len=output_len)
+    valid_dataset = PMDataset2(valid_df, input_len=input_len, output_len=output_len)
+    test_dataset = PMDataset2(test_df, input_len=input_len, output_len=output_len)
     # use drop_last to get rid of last batch
     train_iterator = DataLoader(train_dataset, batch_size=32, shuffle=False, drop_last=True)
     valid_iterator = DataLoader(valid_dataset, batch_size=32, shuffle=False, drop_last=True)
@@ -344,7 +384,26 @@ def prepare(input_path, synthetic_threshold, synthetic_sequence_length, input_le
 def evaluate_metrics(y_original, y_predict):
     loss_mae = mean_absolute_error(y_original, y_predict)
     loss_rmse = mean_squared_error(y_original, y_predict, squared=False)
+    loss_mse = mean_squared_error(y_original, y_predict, squared=True)
     loss_mape = mean_absolute_percentage_error(y_original, y_predict) * 100
     print(f"Loss MAE: {loss_mae}")
+    print(f"Loss MSE: {loss_mse}")
     print(f"Loss RMSE: {loss_rmse}")
     print(f"Loss MAPE: {loss_mape}")
+
+
+def synth_mape(pm25):
+    mape = [0]
+    for i in range(1, len(pm25)):
+        mape.append(100*np.abs(pm25[i] - pm25[i-1]) / pm25[i-1])
+    return mape
+    
+    
+if __name__ == '__main__':
+    df = pd.read_csv('/media/aimenext/disk1/tuanbm/TimeSerires/model/data/1306/sensor_22.csv')
+    df["time"] = pd.to_datetime(df["time"])
+    print(len(df))
+    df = preprocess(df)
+    print(len(df))
+    cnt = cal_missing_value(df)
+    print(cnt)

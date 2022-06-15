@@ -7,9 +7,6 @@ from init_database import connect_fimi_MRA, connect_signal_MRA
 
 input_length = 180
 output_length = 30
-synthetic_thresold = 0.45
-synthetic_seq_len = 4
-c_score = 0.5
 
 
 def process(model, at_least=181):
@@ -45,20 +42,20 @@ def process(model, at_least=181):
     df = pd.DataFrame(gt_dict)
     df = preprocess(df)
 
-    inference_df, sc_test = prepare_inference(
-        df=df,
-        synthetic_threshold=synthetic_thresold,
-        synthetic_sequence_length=synthetic_seq_len,
-    )
+    # inference_df, sc_test = prepare_inference(
+    #     df=df,
+    #     synthetic_threshold=synthetic_thresold,
+    #     synthetic_sequence_length=synthetic_seq_len,
+    # )
 
-    pred_pm2_5, is_on = model.inference(inference_df, input_length, c_score, sc_test)
+    # pred_pm2_5, is_on = model.inference(inference_df, input_length, c_score, sc_test)
 
-    time = [now + timedelta(minutes=i) for i in range(1, len(pred_pm2_5) + 1)]
-    signal_dict = [{"time": time[i], "is_on": is_on[i]} for i in range(len(pred_pm2_5))]
-    pm25_dict = [
-        {"time": time[i], "PM2_5": pred_pm2_5[i]} for i in range(len(pred_pm2_5))
-    ]
-    return signal_dict, pm25_dict
+    # time = [now + timedelta(minutes=i) for i in range(1, len(pred_pm2_5) + 1)]
+    # signal_dict = [{"time": time[i], "is_on": is_on[i]} for i in range(len(pred_pm2_5))]
+    # pm25_dict = [
+    #     {"time": time[i], "PM2_5": pred_pm2_5[i]} for i in range(len(pred_pm2_5))
+    # ]
+    # return signal_dict, pm25_dict
 
 
 if __name__ == "__main__":
