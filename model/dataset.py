@@ -13,7 +13,6 @@ class PMDataset(Dataset):
 
     def __getitem__(self, index):
         X = self.X[index : index + self.input_len, :]
-        # print(self.X)
         Y1 = self.X[index + self.input_len : index + self.input_len + self.output_len, 0:1]
         Y2 = self.X[index + self.input_len : index + self.input_len + self.output_len, -1:]
         return X, Y1, Y2
@@ -39,3 +38,4 @@ class PMDataset2(Dataset):
 
     def __len__(self):
         return self.data_len - (self.input_len + self.output_len - 1)
+ 

@@ -6,11 +6,14 @@ from sklearn.preprocessing import MinMaxScaler, RobustScaler
 from sklearn.model_selection import train_test_split
 from collections import OrderedDict
 import os
+import requests
+from datetime import datetime
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from pandas import DataFrame
 import copy
 import warnings
+from scipy.stats import pearsonr
 warnings.filterwarnings("ignore")
 import torch
 from sklearn.metrics import (
@@ -19,53 +22,6 @@ from sklearn.metrics import (
     mean_absolute_percentage_error,)
 device = torch.device("cuda:%d" % 0 if torch.cuda.is_available() else "cpu")
 
-def cal_synthetic_turn_on(threshold_std, seq_length, pm2_5):
-
-    turn_on = []
-
-    for index, _ in enumerate(pm2_5):
-        if index < seq_length:
-            turn_on.append(1)
-        else:
-            std = np.std(
-                pm2_5[index - seq_length: index]
-            )
-            # print(std)
-            if std > threshold_std:
-                turn_on.append(1)
-            else:
-                turn_on.append(0)
-
-    return turn_on
-
-def cal_std(seq_length, pm2_5):
-    list_std = []
-    for index, _ in enumerate(pm2_5):
-        if index < seq_length:
-            list_std.append(0)
-        else:
-            std = np.std(pm2_5[index - seq_length: index])
-            list_std.append(std)
-            
-    return list_std  
-
-def cal_confidence(pm2_5):
-    list_mape = []
-    list_c = []
-    for index, _ in enumerate(pm2_5):
-        if index == 0:
-            list_mape.append(0)
-        else:
-            mape = np.abs(pm2_5[index] - pm2_5[index-1]) / pm2_5[index]
-            list_mape.append(mape)
-    np_mape = 1 - np.array(list_mape)
-    for index, mape in enumerate(np_mape):
-        if index < 4:
-            list_c.append(mape)
-        else:
-            list_c.append(np.mean(np_mape[index-4:index+1]))
-    return list_c
-    
             
 def remove_outlier(df_in, col_name):
     q1 = df_in[col_name].quantile(0.25)
@@ -99,37 +55,11 @@ def get_train_valid_test_data(df):
     return train_df, val_df, test_df, sc_train, sc_val, sc_test
 
 def get_train_valid_test_data_2(df):
-    ls_col = list(df.keys())
-    new_ls = ["PM2_5"]
-    ls_col.remove("PM2_5")
-    new_ls.extend(ls_col)
-    new_df = df[new_ls]
-    train_df, valid_df = train_test_split(new_df, test_size=0.4, shuffle=False)
+    train_df, valid_df = train_test_split(df, test_size=0.4, shuffle=False)
     val_df, test_df = train_test_split(valid_df, test_size=0.5, shuffle=False)
 
     return train_df, val_df, test_df
 
-def get_test_data(df):
-    base_df = pd.read_csv("data/ff_envitus.csv")
-    ignore_colum = [
-        "time",
-        "datetime",
-        "Unnamed: 0",
-        "NO2",
-        "SO2",
-        # "humidity",
-        # "PM10",
-        # "temp",
-        # "CO",
-    ]
-    for column in ignore_colum:
-        if column in base_df.columns:
-            base_df.drop(column, axis=1, inplace=True)
-            
-    _, sc_test = scale_data(base_df)
-    test_sc = sc_test.fit_transform(df)
-    test_df = pd.DataFrame(test_sc, columns=df.columns)
-    return test_df, sc_test
 
 
 def copyStateDict(state_dict):
@@ -160,9 +90,7 @@ def plot_metrics(train_loss, val_loss, folder, filename):
 def plot_results(y_original, y_predict, folder, filename, y_inference=None):
     if not os.path.exists(folder):
         os.makedirs(folder)
-    # print(y_original.shape)
-    # print(y_predict)
-    # print(y_inference)
+
     plt.figure(figsize=(30, 14))
     plt.title("PM2_5")
     plt.plot(y_original, label="Original")
@@ -191,54 +119,7 @@ def cal_energy(count, total):
         count = total
     w_active = 3.185
     w_sleep = 1.617
-
     return 1 - (count * w_sleep + (total - count) * w_active) / (total * w_active)
-
-
-def prepare_test(input_path, synthetic_threshold, synthetic_sequence_length, input_len, output_len):
-
-    df = pd.read_csv(input_path)
-    df["time"] = pd.to_datetime(df["time"])
-    print(len(df))
-    
-    # df = preprocess(df)
-    # print(len(df))
-    df = df[-int(0.2*len(df)):]
-    # print(len(df))
-    # ignore_colum = ["datetime", "Unnamed: 0", "NO2", "SO2", "PM1_0", "CO"]
-    ignore_colum = [
-        "time",
-        "datetime",
-        "Unnamed: 0",
-        "NO2",
-        "SO2",
-        "humidity",
-        "PM10",
-        "temp",
-        "CO",
-        "PM1_0",
-        "temperature",
-        "PM10_0"
-    ]
-    for column in ignore_colum:
-        if column in df.columns:
-            df.drop(column, axis=1, inplace=True)
-
-    pm2_5 = df["PM2_5"].values
-    turn_on = cal_synthetic_turn_on(
-        synthetic_threshold, synthetic_sequence_length, pm2_5
-    )
-    # df["turn_on"] = turn_on
-    print(df.columns)
-    test_df, sc_test = get_test_data(df)
-
-    test_dataset = PMDataset(test_df, input_len=input_len, output_len=output_len)
-    # use drop_last to get rid of last batch
-    test_iterator = DataLoader(
-        test_dataset, batch_size=32, shuffle=False, drop_last=True
-    )
-
-    return test_df, test_iterator, sc_test
 
 
 def boolean(string):
@@ -250,7 +131,6 @@ def preprocess(dataset):
     previous_row = None
     print('preprocess..')
     for idx, row in dataset.iterrows():
-        print(idx)
         date_time = row["time"]
         minute = int(date_time.strftime("%M"))
         if len(df.index) == 0:
@@ -262,12 +142,10 @@ def preprocess(dataset):
                 df = df.append(row, ignore_index=True)
             else:
                 while (minute - 1 != previous_minute) and (minute + 59 != previous_minute):
-                    previous_row["time"] = previous_row["time"] + pd.DateOffset(
-                        minutes=1
-                    )
+                    previous_row["time"] = previous_row["time"] + pd.DateOffset(minutes=1)
                     previous_minute = int(previous_row["time"].strftime("%M"))
                     df = df.append(previous_row, ignore_index=True)
-                    df = df.append(row, ignore_index=True)
+                df = df.append(row, ignore_index=True)
 
         previous_minute = minute
         previous_row = row
@@ -275,20 +153,6 @@ def preprocess(dataset):
     return df
 
 
-def prepare_inference(df,synthetic_threshold,synthetic_sequence_length,):
-    ignore_colum = ["datetime", "Unnamed: 0", "NO2", "SO2", "PM1_0", "CO"]
-    for column in ignore_colum:
-        if column in df.columns:
-            df.drop(column, axis=1, inplace=True)
-
-    pm2_5 = df["PM2_5"].values
-    turn_on = cal_synthetic_turn_on(
-        synthetic_threshold, synthetic_sequence_length, pm2_5
-    )
-    df["turn_on"] = turn_on
-    test_df, sc_test = get_test_data(df)
-
-    return test_df, sc_test
 
 
 def save_train_info(dict_data, path_save):
@@ -296,15 +160,16 @@ def save_train_info(dict_data, path_save):
         json.dump(dict_data,file)
 
 
-def prepare_2(input_path, input_len, output_len):
+def prepare(input_path, input_len, output_len):
     df = pd.read_csv(input_path)
+    df = df[-40000:]
+    # print(np.std(df['PM2_5'].values))
     df["time"] = pd.to_datetime(df["time"])
-    # df = remove_outlier(df, 'PM2_5')
-    # df = df[-20000:]
     ignore_colum = [
         "time",
         "datetime",
         "Unnamed: 0",
+        "Unnamed: 0.1",
         "NO2",
         "SO2",
         "humidity",
@@ -318,7 +183,7 @@ def prepare_2(input_path, input_len, output_len):
     for column in ignore_colum:
         if column in df.columns:
             df.drop(column, axis=1, inplace=True)
-
+    # print(df.describe())
     train_df, valid_df, test_df = get_train_valid_test_data_2(df)
     train_dataset = PMDataset2(train_df, input_len=input_len, output_len=output_len)
     valid_dataset = PMDataset2(valid_df, input_len=input_len, output_len=output_len)
@@ -336,7 +201,99 @@ def prepare_2(input_path, input_len, output_len):
         test_iterator)
     
     
-def prepare(input_path, input_len, output_len):
+def prepare_multitask_test(input_path, input_len, output_len, task):
+    df_result = pd.DataFrame()
+    for index, path in enumerate(os.listdir(input_path)):
+        if index == task:
+            df = pd.read_csv(os.path.join(input_path, path))
+            ignore_colum = [
+                "time",
+                "datetime",
+                "Unnamed: 0",
+                "Unnamed: 0.1",
+                "NO2",
+                "SO2",
+                "humidity",
+                "PM10",
+                "temp",
+                "CO",
+                "PM1_0",
+                "temperature",
+                "PM10_0"
+            ]
+            for column in ignore_colum:
+                if column in df.columns:
+                    df.drop(column, axis=1, inplace=True)
+            for repeat_path in os.listdir(input_path):
+                df_result[repeat_path[:-4]] = df['PM2_5'].values[-40000:]
+        
+
+    train_df, valid_df, test_df = get_train_valid_test_data_2(df_result)
+    train_dataset = PMDataset2(train_df, input_len=input_len, output_len=output_len)
+    valid_dataset = PMDataset2(valid_df, input_len=input_len, output_len=output_len)
+    test_dataset = PMDataset2(test_df, input_len=input_len, output_len=output_len)
+    # use drop_last to get rid of last batch
+    train_iterator = DataLoader(train_dataset, batch_size=32, shuffle=False, drop_last=True)
+    valid_iterator = DataLoader(valid_dataset, batch_size=32, shuffle=False, drop_last=True)
+    test_iterator = DataLoader(test_dataset, batch_size=32, shuffle=False, drop_last=True)
+    return (
+        train_df,
+        valid_df,
+        test_df,
+        train_iterator,
+        valid_iterator,
+        test_iterator)
+    
+def prepare_multitask(input_path, input_len, output_len, task=None):
+    cluster = [1,2,3,4,5,6,7,8]
+    # cluster = [2,5 ,7 ]
+    df_result = pd.DataFrame()
+    if task != None:
+        list_path = [os.listdir(input_path)[task]]
+    else:
+        list_path = os.listdir(input_path)
+    for idx, path in enumerate(list_path):
+      if idx + 1 in cluster:
+        df = pd.read_csv(os.path.join(input_path, path))
+        ignore_colum = [
+            "time",
+            "datetime",
+            "Unnamed: 0",
+            "Unnamed: 0.1",
+            "NO2",
+            "SO2",
+            "humidity",
+            "PM10",
+            "temp",
+            "CO",
+            "PM1_0",
+            "temperature",
+            "PM10_0"
+        ]
+        for column in ignore_colum:
+            if column in df.columns:
+                df.drop(column, axis=1, inplace=True)
+        df_result[path[:-4]] = df['PM2_5'].values[-40000:]
+        
+    
+    train_df, valid_df, test_df = get_train_valid_test_data_2(df_result)
+    train_dataset = PMDataset2(train_df, input_len=input_len, output_len=output_len)
+    valid_dataset = PMDataset2(valid_df, input_len=input_len, output_len=output_len)
+    test_dataset = PMDataset2(test_df, input_len=input_len, output_len=output_len)
+    # use drop_last to get rid of last batch
+    train_iterator = DataLoader(train_dataset, batch_size=32, shuffle=False, drop_last=True)
+    valid_iterator = DataLoader(valid_dataset, batch_size=32, shuffle=False, drop_last=True)
+    test_iterator = DataLoader(test_dataset, batch_size=32, shuffle=False, drop_last=True)
+    return (
+        train_df,
+        valid_df,
+        test_df,
+        train_iterator,
+        valid_iterator,
+        test_iterator)
+    
+    
+def prepare2(input_path, input_len, output_len):
     df = pd.read_csv(input_path)
     df["time"] = pd.to_datetime(df["time"])
     # df = remove_outlier(df, 'PM2_5')
@@ -386,24 +343,56 @@ def evaluate_metrics(y_original, y_predict):
     loss_rmse = mean_squared_error(y_original, y_predict, squared=False)
     loss_mse = mean_squared_error(y_original, y_predict, squared=True)
     loss_mape = mean_absolute_percentage_error(y_original, y_predict) * 100
-    print(f"Loss MAE: {loss_mae}")
-    print(f"Loss MSE: {loss_mse}")
-    print(f"Loss RMSE: {loss_rmse}")
-    print(f"Loss MAPE: {loss_mape}")
-
-
-def synth_mape(pm25):
-    mape = [0]
-    for i in range(1, len(pm25)):
-        mape.append(100*np.abs(pm25[i] - pm25[i-1]) / pm25[i-1])
-    return mape
+    corr = pearsonr(y_original, y_predict)
+    print(f"Loss MAE: {round(loss_mae,2)}")
+    print(f"Loss MSE: {round(loss_mse,2)}")
+    print(f"Loss RMSE: {round(loss_rmse,2)}")
+    print(f"Loss MAPE: {round(loss_mape,2)}")
+    print(f"CORR: {round(corr[0]*100,2)}")
     
+    return loss_mae, loss_rmse, loss_mse, loss_mape, corr[0]*100
+    
+
+def fetch_data(start, end, mra=True):
+    if mra:
+        fimi = f"http://202.191.57.62:8086/fimi-mra/get_pm25?start_time={start}&end_time={end}"
+    else:
+        fimi = f"http://202.191.57.62:8086/sensor/get_sensors_by_id?start_time={start}:00&end_time={end}:00&device_id=fimi_23"
+
+    response = requests.get(fimi)
+    content = response.content.decode("UTF-8")
+    res = json.loads(content)
+    pm2_5 = [instance["PM2_5"] for instance in res["data"]]
+
+    time = [
+        datetime.strptime(instance["time"].split('.')[0], "%Y-%m-%dT%H:%M:%S")
+        for instance in res["data"]
+    ]
+    gt_dict = {"time": time, "PM2_5": pm2_5}
+    df = pd.DataFrame(gt_dict)
+    df = preprocess(df)
+    
+    return df
+
+def evaluate_realtime(start, end):
+    predict_df = fetch_data(start, end)
+    original_df = fetch_data(start, end, False)
+    
+    predict_pm25 = predict_df['PM2_5'].values
+    original_pm25 = original_df['PM2_5'].values
+
+    mape = mean_absolute_percentage_error(original_pm25[1:], predict_pm25) * 100
+    print('MAPE: ', mape)
     
 if __name__ == '__main__':
-    df = pd.read_csv('/media/aimenext/disk1/tuanbm/TimeSerires/model/data/1306/sensor_22.csv')
-    df["time"] = pd.to_datetime(df["time"])
-    print(len(df))
-    df = preprocess(df)
-    print(len(df))
-    cnt = cal_missing_value(df)
-    print(cnt)
+    # df = pd.read_csv('/media/aimenext/disk1/tuanbm/TimeSerires/model/data/1306/sensor_12.csv')
+    # df["time"] = pd.to_datetime(df["time"])
+    # print(len(df))
+    # df = remove_outlier(df, 'PM2_5')
+    # df = preprocess(df)
+    # print(len(df))
+    # df.to_csv('/media/aimenext/disk1/tuanbm/TimeSerires/model/data/train/sensor_12.csv')
+    # start = '20-06-2022 11:25'
+    # end = '20-06-2022 12:35'
+    # evaluate_realtime(start, end)
+    print(cal_energy(10, 15))
