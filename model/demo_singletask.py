@@ -45,13 +45,13 @@ for i,path in enumerate(os.listdir(dir)):
     model.load_state_dict(copyStateDict(torch.load(model_path)))
     st = time.time()
     # metrics = predict(model, test_iterator)
-    metrics = inference_3(
+    metrics = inference_2(
         model=model,
         test_df=test_df,
         input_length=args.input_seq_len,
         output_length=args.output_seq_len,
-        off_size=0,
-        mape_threshold=3
+        off_size=3,
+        beta=0.5
     )
     # print('time: ', round(time.time() - st,2))
     total_time += time.time() - st
@@ -61,5 +61,5 @@ for i,path in enumerate(os.listdir(dir)):
 # print(model.)
 result = np.round(result, 2)
 df = pd.DataFrame(result, index = index)
-df.to_csv('result/7.csv')
+df.to_csv('result/2_5.csv')
 # print(df)

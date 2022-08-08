@@ -244,7 +244,7 @@ def inference_1(model, test_df, input_length, output_length, off_size):
     #     f"inference_{name}.png",
     # )
 
-def inference_2(model, test_df, input_length, output_length):
+def inference_2(model, test_df, input_length, output_length, beta = 0.5, off_size=5):
     feature = test_df.iloc[:, :].values
 
     original_feature = feature[:1]
@@ -253,26 +253,31 @@ def inference_2(model, test_df, input_length, output_length):
     i = 0
     count = 0
     while i < len(feature):
-        # prepare input
         feature_input = input[len(input) - input_length : len(input)]
 
         feature_input = feature_input.reshape(1, feature_input.shape[0], feature_input.shape[1])
         tensor_x = torch.FloatTensor(feature_input).to(device)
         feature_output = model.forward(tensor_x)
         feature_output = feature_output.detach().numpy().squeeze(0)
-
+        t = -1
+        for idx in range(len(feature_output) - 1):
+            if abs(feature_output[idx] - feature_output[idx-1]) > beta:
+                t = idx
+                break
+        if t == -1:
+            t = output_length
         
-        feature_predict = np.concatenate((feature_predict, feature_output))
-        original_feature = np.concatenate((original_feature, feature[i:i+output_length]))
-        input = np.concatenate((input, feature_output))
-        i += output_length
-        count += output_length
-        input = np.concatenate((input, feature[i : i + 5]))
-        i += 5
+        feature_predict = np.concatenate((feature_predict, feature_output[:t]))
+        original_feature = np.concatenate((original_feature, feature[i:i+t]))
+        input = np.concatenate((input, feature_output[:t]))
+        i += t
+        count += t
+        input = np.concatenate((input, feature[i : i + off_size]))
+        i += off_size
 
     # cal loss
 
-    evaluate_metrics(original_feature.reshape(-1), feature_predict[:len(original_feature)].reshape(-1))
+    _, _, _, mape, _ = evaluate_metrics(original_feature.reshape(-1), feature_predict[:len(original_feature)].reshape(-1))
 
     percent_save = cal_energy(count, len(feature)) * 100
     if percent_save > 100:
@@ -281,6 +286,7 @@ def inference_2(model, test_df, input_length, output_length):
     # print(f"{count}/{feature.shape[0]}")
     print(f"Save {percent_save}% times")
 
+    return mape, percent_save
 
 def inference_3(model, test_df, input_length, output_length, mape_threshold = 5, off_size = 5):
     feature = test_df.iloc[:, :].values
